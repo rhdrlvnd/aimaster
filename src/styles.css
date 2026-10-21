@@ -2292,3 +2292,172 @@ button:focus-visible { outline: 3px solid #21826c; outline-offset: 3px; }
   .checklist-ai-actions { justify-content: flex-start; }
   .review-panel .review-toolbar { align-items: flex-start; }
 }
+
+.schedule-calendar { margin: 20px 0; }
+.calendar-toolbar, .calendar-toolbar > div { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.calendar-toolbar { justify-content:space-between; }
+.calendar-help { font-size:13px; color:#52685e; }
+.calendar-scroll { overflow:auto; max-height:660px; border:1px solid var(--border-panel); border-radius:10px; margin-top:12px; }
+.calendar-grid { display:grid; grid-template-columns:64px repeat(7,minmax(130px,1fr)); min-width:974px; }
+.calendar-day-heading { position:sticky; top:0; z-index:3; text-align:center; padding:12px 6px; background:#eef4f1; border-bottom:1px solid var(--border-panel); border-right:1px solid var(--border-divider); font-weight:600; }
+.calendar-hours > div { height:72px; padding:8px 4px; font-size:12px; text-align:center; border-bottom:1px solid var(--border-divider); }
+.calendar-day { position:relative; border-left:1px solid var(--border-divider); }
+.calendar-day.unavailable { background:repeating-linear-gradient(135deg,#f2f4f5,#f2f4f5 8px,#e9edef 8px,#e9edef 9px); }
+.calendar-day .calendar-slot { display:block; width:100%; height:72px; padding:0; border:0; border-bottom:1px solid var(--border-divider); border-radius:0; background:transparent; box-shadow:none; color:#6a7c87; font-size:12px; }
+.calendar-day .calendar-slot:hover:not(:disabled) { background:#e3f2eb; }
+.calendar-day .calendar-event { position:absolute; left:4px; width:calc(100% - 8px); z-index:1; padding:6px 8px; display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:4px; background:#e4f3ee; border:1px solid #6d9e8d; border-left:4px solid #137d69; color:#194f40; text-align:left; cursor:grab; overflow:hidden; }
+.calendar-event small { font-size:11px; }
+.calendar-event span { font-size:12px; line-height:1.5; }
+.calendar-day .calendar-event.selected { outline:2px solid #137d69; outline-offset:0; background:#cce8dd; }
+.calendar-day .calendar-event.completed { background:#e9edf0; border-color:#a6b2bb; cursor:default; }
+.calendar-table-editor { margin:16px 0 20px; }
+.calendar-table-editor > summary { cursor:pointer; padding:10px 12px; border:1px solid var(--border-card); border-radius:7px; width:fit-content; }
+
+.month-calendar-scroll { overflow:auto; max-height:62vh; margin:10px 0; border:1px solid var(--border-panel); border-radius:10px; scrollbar-gutter:stable; }
+.month-calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(125px,1fr)); min-width:875px; }
+.month-weekday { position:sticky; top:0; z-index:2; padding:8px; text-align:center; font-weight:600; background:#eef4f1; border-bottom:1px solid var(--border-panel); }
+.month-weekday.weekend { color:#8a655f; }
+.month-day { min-height:52px; padding:6px; border-right:1px solid var(--border-divider); border-bottom:1px solid var(--border-divider); background:white; }
+.month-day:nth-child(7n) { border-right:0; }
+.month-day.unavailable { background:#f2f4f6; }
+.month-day.outside-month { background:#e9eef1; color:#87939c; }
+.month-day.drop-target { background:#dff2e9; box-shadow:inset 0 0 0 2px #137d69; }
+.month-date-heading { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.month-date-heading > small { font-size:10px; color:#7c8990; }
+.month-day .month-date { padding:3px 7px; min-height:28px; font-size:12px; }
+.month-date:disabled { opacity:1; color:inherit; border-color:transparent; background:transparent; box-shadow:none; }
+.month-events { display:flex; flex-direction:column; gap:5px; }
+.month-day .month-event { display:flex; flex-direction:column; align-items:flex-start; gap:3px; width:100%; padding:6px 7px; text-align:left; background:#e8f4ee; border:1px solid #9bbdad; border-left:3px solid #137d69; color:#245444; cursor:grab; }
+.month-event small { font-size:10px; white-space:nowrap; }
+.month-event span { font-size:11px; line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.month-day .month-event.selected { outline:2px solid #137d69; background:#cfe8dc; }
+.month-day .month-event.completed { background:#e1e7eb; border-color:#adb8bf; cursor:default; }
+.month-day .month-place { width:100%; margin-top:8px; padding:4px; font-size:11px; min-height:28px; }
+.month-move-controls { display:flex; align-items:center; flex-wrap:wrap; gap:12px; background:#eef6f2; border:1px solid #afc3b9; padding:12px; border-radius:8px; }
+.feature-card .month-move-controls label { display:flex; align-items:center; gap:8px; margin:0; }
+.month-day .month-event { touch-action:none; user-select:none; -webkit-user-select:none; }
+.month-day .month-event:active { cursor:grabbing; }
+.calendar-drag-preview { position:fixed; z-index:9999; pointer-events:none; max-width:240px; padding:10px 12px; background:#137d69; color:white; border-radius:8px; box-shadow:0 5px 18px #0003; font-size:12px; }
+
+.feature-card.schedule-settings-card { padding:16px 20px; }
+.schedule-control-bar { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+.schedule-control-bar > div:first-child { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+.schedule-control-bar strong { font-size:13px; }
+.schedule-control-bar span { font-size:13px; color:#52685e; }
+.schedule-control-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.schedule-settings-body { margin-top:16px; padding-top:16px; border-top:1px solid var(--border-divider); }
+.schedule-settings-body > p, .schedule-first-help { font-size:13px; color:#52685e; margin:12px 0 0; }
+.calendar-lock-message { margin:16px 0; padding:14px 16px; border:1px solid #d2b77a; border-radius:8px; background:#fff8e8; color:#71531a; }
+.calendar-lock-message p { margin:6px 0 0; font-size:13px; }
+.month-day .month-event:disabled { cursor:not-allowed; }
+
+.review-ai-options { position:relative; }
+.review-ai-options > summary { list-style:none; cursor:pointer; padding:10px 14px; border:1px solid #9cb5b0; border-radius:8px; background:#f5f9f8; color:#355a54; font-size:13px; font-weight:600; }
+.review-ai-options > summary::after { content:' ▾'; }
+.review-ai-options[open] > summary::after { content:' ▴'; }
+.review-ai-options > summary:focus-visible { outline:2px solid #137c69; outline-offset:3px; }
+.review-ai-options > div { position:absolute; z-index:10; right:0; top:calc(100% + 8px); width:320px; max-width:80vw; padding:18px; border:1px solid #9cb5b0; border-radius:10px; background:white; box-shadow:0 6px 22px #173c3920; }
+.review-panel .review-ai-options p { margin:0 0 12px; font-size:13px; line-height:1.6; }
+.review-ai-options button { width:100%; }
+.month-event .calendar-priority { font-weight:700; color:#386358; }
+.month-event .calendar-priority.high { color:#a13926; }
+.month-event .calendar-relation-count { color:#536c66; margin-top:5px; padding-top:4px; border-top:1px solid #c5d8d1; }
+.schedule-calendar > .calendar-toolbar { position:sticky; top:8px; z-index:5; padding:10px 12px; background:#fff; border:1px solid var(--border-panel); border-radius:8px; box-shadow:0 2px 5px #143c3810; }
+.schedule-calendar > .calendar-help { margin:8px 0; }
+.schedule-panel-stack:not([hidden]) { display:grid; gap:16px; min-width:0; }
+.schedule-panel-stack[hidden] { display:none; }
+.schedule-panel-stack .calendar-toolbar { margin-top:4px; }
+.schedule-panel-stack .calendar-table-editor { margin-top:16px; }
+.schedule-period-inputs { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.schedule-period-inputs input[type=date] { width:155px; min-height:40px; cursor:pointer; }
+.schedule-period-inputs small { color:#8a6021; font-size:12px; }
+.feature-card .schedule-day-options { display:grid; grid-template-columns:minmax(230px, .7fr) minmax(300px, 1.3fr); gap:24px; padding:4px 0; }
+.schedule-weekend-option { padding-right:24px; border-right:1px solid var(--border-divider); }
+.schedule-weekend-option strong, .feature-card .schedule-holiday-option > label { font-size:14px; font-weight:600; margin:0 0 12px; }
+.feature-card label.schedule-weekend-toggle { display:flex; align-items:center; gap:10px; margin:14px 0 10px; cursor:pointer; }
+.schedule-weekend-toggle input { width:18px; height:18px; margin:0; accent-color:#137c69; }
+.schedule-day-options small { font-size:12px; color:#60756f; }
+.schedule-holiday-add { display:flex; align-items:center; gap:8px; }
+.schedule-holiday-add input[type=date] { width:180px; }
+.schedule-holiday-add button { min-height:40px; padding:8px 14px; }
+.schedule-holiday-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.schedule-holiday-list button { display:flex; align-items:center; gap:14px; padding:6px 10px; border:1px solid #a7c0b7; border-radius:6px; background:#f0f7f4; font-size:12px; }
+.schedule-holiday-list button span { font-size:18px; }
+.feature-card .schedule-options-note { margin:16px 0 0; color:#60756f; font-size:12px; }
+@media(max-width:850px) { .feature-card .schedule-day-options { grid-template-columns:1fr; gap:18px; } .schedule-weekend-option { border-right:0; border-bottom:1px solid var(--border-divider); padding:0 0 18px; } }
+.calendar-event-card { min-width:0; }
+.schedule-detail-drawer { position:fixed; top:16px; right:16px; bottom:16px; width:420px; max-width:calc(100vw - 32px); z-index:100; background:#fff; border:1px solid #9cb5b0; border-radius:12px; box-shadow:-8px 4px 32px #183e392e; display:flex; flex-direction:column; }
+.schedule-detail-drawer .schedule-detail-header { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid #bfd0ca; flex-shrink:0; }
+.schedule-detail-header button, .schedule-detail-body button { padding:8px 12px; min-height:36px; border:1px solid #9cb5b0; border-radius:7px; background:#f5faf8; color:#245444; cursor:pointer; }
+.schedule-detail-body { padding:20px; overflow:auto; }
+.schedule-detail-body h2 { font-size:18px; line-height:1.6; margin:0 0 10px; }
+.schedule-detail-body p { font-size:13px; line-height:1.7; color:#52685e; }
+.schedule-detail-description { white-space:pre-wrap; }
+.schedule-detail-body section { border-top:1px solid #ccd9d4; margin-top:18px; padding-top:16px; }
+.schedule-detail-body h3 { font-size:14px; margin:0 0 10px; }
+.schedule-detail-body .schedule-related-task { display:block; width:100%; text-align:left; margin:6px 0; }
+.schedule-detail-body .month-move-controls { margin-top:18px; font-size:13px; }
+.schedule-date-editor { display:grid; gap:10px; margin-top:18px; padding-top:18px; border-top:1px solid #ccd9d4; }
+.schedule-date-editor label { font-size:14px; font-weight:600; }
+.schedule-date-editor input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #9cb5b0; border-radius:7px; font:inherit; background:white; }
+.schedule-date-editor small { color:#60756f; font-size:12px; }
+.schedule-date-editor p[role=alert] { color:#a13926; margin:0; }
+.questions-chat { display:grid; gap:12px; min-width:0; }
+.question-channels { display:flex; gap:8px; }
+.question-channels button { padding:10px 18px; border:1px solid #9cb5b0; border-radius:8px; background:white; color:#355a54; font-weight:600; }
+.question-channels button[aria-pressed=true] { background:#137c69; color:white; border-color:#137c69; }
+.questions-chat .chat-panel { display:flex; flex-direction:column; height:clamp(480px,70vh,800px); padding:20px 24px 0; overflow:hidden; }
+.questions-chat .chat-panel[hidden] { display:none; }
+.questions-chat .chat-panel > h2 { font-size:17px; margin-bottom:8px; }
+.questions-chat .chat-panel > .feature-actions { margin:0 0 12px; padding-bottom:12px; border-bottom:1px solid #ccd9d4; }
+.questions-chat .chat-history { flex:1; min-height:0; max-height:none; overflow:auto; margin:0; padding:16px 8px; scroll-behavior:smooth; }
+.questions-chat .chat-turn, .questions-chat .board-question { display:flex; flex-direction:column; gap:12px; border:0; border-radius:0; margin:0 0 20px; padding:0; overflow:visible; }
+.questions-chat .chat-user, .questions-chat .chat-answer { width:fit-content; max-width:85%; padding:12px 16px; border:1px solid #c4d5ce; border-radius:14px; }
+.questions-chat .chat-user { align-self:flex-end; background:#e4f3ec; border-bottom-right-radius:3px; }
+.questions-chat .chat-answer { align-self:flex-start; background:#f6f8f9; border-bottom-left-radius:3px; }
+.questions-chat .chat-user strong, .questions-chat .chat-answer > strong { font-size:12px; color:#52685e; }
+.questions-chat .chat-user p, .questions-chat .chat-answer p { margin:6px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
+.questions-chat .chat-composer { flex-shrink:0; display:flex; align-items:flex-end; gap:12px; border-top:1px solid #b4c9c0; margin:0 -24px; padding:14px 24px; background:#f8fbfa; }
+.questions-chat .chat-composer label { flex:1; margin:0; gap:6px; font-size:12px; }
+.questions-chat .chat-composer textarea { min-height:64px; height:64px; max-height:130px; resize:vertical; }
+.questions-chat .chat-composer button { min-height:42px; margin-bottom:2px; background:#137c69; color:white; border:1px solid #137c69; }
+.questions-chat .board-question > form { padding:12px 16px; border:1px solid #c4d5ce; border-radius:10px; background:#f8fbfa; }
+.questions-chat .board-question > form textarea { min-height:60px; }
+@media(max-width:700px) { .questions-chat .chat-panel { padding:16px 12px 0; } .questions-chat .chat-composer { margin:0 -12px; padding:12px; } .questions-chat .chat-user, .questions-chat .chat-answer { max-width:94%; } }
+.question-inbox { display: grid; gap: 18px; }
+.question-inbox header h2 { margin: 0 0 8px; }
+.question-inbox-layout { display: grid; grid-template-columns: minmax(240px, 30%) 1fr; min-height: 400px; gap: 24px; }
+.question-inbox-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow: auto; padding-right: 16px; border-right: 1px solid #b6c8cc; }
+.question-inbox-list button { text-align: left; display: grid; gap: 8px; padding: 14px; white-space: normal; }
+.question-inbox-list button[aria-pressed="true"] { background: #e6f4ee; border-color: #12816c; }
+.question-inbox-list span { font-size: 12px; color: #536c77; }
+.question-inbox-detail { min-width: 0; max-height: 65vh; overflow: auto; padding: 4px 8px; }
+.question-inbox-detail h3 { margin: 10px 0 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-inbox-detail form { display: grid; gap: 14px; margin-top: 24px; }
+.question-inbox-detail label { display: grid; gap: 10px; }
+.question-inbox-detail textarea { min-height: 180px; resize: vertical; }
+.question-inbox-detail form button { justify-self: end; }
+.question-ai-context { border: 1px solid #c0cecf; border-radius: 8px; padding: 14px; background: #f6f9f8; }
+.question-ai-context summary { cursor: pointer; }
+.question-ai-context p, .forwarded-answer p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.forwarded-answer { margin-top: 16px; padding: 14px; background: #e9f5ef; border: 1px solid #95b9ad; border-radius: 8px; }
+@media (max-width: 700px) { .question-inbox-layout { grid-template-columns: 1fr; } .question-inbox-list { max-height: 220px; border-right: 0; padding-right: 0; } }
+.questions-chat .chat-answer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid #d4dfdc; }
+.questions-chat .chat-answer-actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; margin: 0; padding: 8px 12px; border: 1px solid #afc5bd; border-radius: 8px; background: #fff; font-size: 13px; line-height: 1.4; }
+.questions-chat .chat-answer-actions button:hover:not(:disabled) { background: #eaf4ef; border-color: #278671; }
+.questions-chat .conversation-workspace { display: grid; grid-template-columns: 260px minmax(0, 1fr); padding: 0; }
+.conversation-sidebar { display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 20px 14px; border-right: 1px solid #bdcec8; background: #f4f8f6; }
+.conversation-sidebar-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; font-size: 14px; }
+.conversation-sidebar-heading span { color: #527166; }
+.conversation-new { min-height: 40px; background: white; border: 1px solid #a9c2b7; border-radius: 8px; color: #147862; font-weight: 600; }
+.conversation-list { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; }
+.conversation-list-item { display: flex; flex-direction: column; align-items: stretch; gap: 6px; text-align: left; padding: 12px; border: 1px solid #d0ddd6; border-radius: 9px; background: #fff; flex-shrink: 0; }
+.conversation-list-item[aria-pressed="true"] { background: #e2f2eb; border-color: #21836b; box-shadow: inset 3px 0 #21836b; }
+.conversation-list-item strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-list-item span { font-size: 12px; color: #63766f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-list-item small { font-size: 11px; color: #63766f; }
+.conversation-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 0 24px; }
+.conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid #c6d5cf; min-height: 70px; }
+.conversation-heading h2 { margin: 0 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-heading button { flex-shrink: 0; }
+@media(max-width: 700px) { .questions-chat .conversation-workspace { grid-template-columns: 1fr; padding: 0; } .conversation-sidebar { max-height: 170px; border-right: 0; border-bottom: 1px solid #bdcec8; padding: 12px; gap: 8px; } .conversation-list { flex-direction: row; overflow-x: auto; } .conversation-list-item { width: 180px; } .conversation-main { padding: 0 12px; } }

@@ -37,30 +37,57 @@ export default function ChecklistPanel({
   deleteItem,
   setSelected,
 }) {
+  const generating = busy === "generate";
+  const remaining = items.length - reviewed;
+  const nextAction = changed
+    ? "문서가 변경됐어요. 새 초안을 생성한 뒤 검토해 주세요."
+    : remaining > 0
+      ? `내용과 선행 업무를 확인하고 남은 ${remaining}개 항목을 검토 완료로 표시해 주세요.`
+      : dirty
+        ? "모든 항목을 확인했어요. 변경 저장 후 최종 확정해 주세요."
+        : "검토 내용이 저장됐어요. 최종 확정하면 일정을 만들 수 있어요.";
   return (
     <section className="review-panel">
       <div className="review-heading">
         <div>
           <h2>인수인계 체크리스트</h2>
           <p>
-            {locked
-              ? "검토한 내용이 확정되었습니다."
-              : state.source === "ai"
-                ? "AI가 만든 초안입니다. 원문과 비교해 확인해 주세요."
-                : "문서를 등록하면 AI가 업무별 초안을 제안합니다."}
+            {generating
+              ? "등록된 문서를 분석해 새 체크리스트 초안을 만들고 있습니다."
+              : locked
+                ? "검토한 내용이 확정되었습니다."
+                : state.source === "ai"
+                  ? "내용과 선행 업무를 함께 검토한 뒤, 저장하고 최종 확정하세요."
+                  : "문서를 등록하면 AI가 업무별 초안을 제안합니다."}
           </p>
         </div>
         <div className="checklist-ai-actions">
+          {!generating && !locked && items.length > 0 && (
+            <details className="review-ai-options">
+              <summary>선행 업무 다시 제안 · 선택</summary>
+              <div>
+                <p>
+                  초안 생성 시 선행 업무도 함께 제안됩니다. 다시 분석이 필요할
+                  때만 사용하세요.
+                </p>
+                <p>
+                  실행하면 기존 선행 관계가 바뀌고 검토 완료 표시가
+                  초기화됩니다.
+                </p>
+                {dirty && <p>수정한 내용을 먼저 변경 저장해 주세요.</p>}
+                <button
+                  disabled={!!busy || locked || dirty || !items.length}
+                  onClick={suggestDependencies}
+                >
+                  {busy === "dependencies"
+                    ? "선행 업무 분석 중…"
+                    : "AI로 선행 업무 다시 제안"}
+                </button>
+              </div>
+            </details>
+          )}
           <button
-            disabled={!!busy || locked || dirty || !items.length}
-            onClick={suggestDependencies}
-          >
-            {busy === "dependencies"
-              ? "선행 업무 분석 중…"
-              : "AI 선행 업무 제안"}
-          </button>
-          <button
-            className="primary"
+            className={items.length && !generating ? "" : "primary"}
             disabled={
               !!busy ||
               locked ||
@@ -98,13 +125,13 @@ export default function ChecklistPanel({
           주세요. 기존 체크리스트는 그대로 확인할 수 있습니다.
         </div>
       )}
-      {changed && (
+      {!generating && changed && (
         <div className="inline-warning">
           현재 초안은 변경 전 문서로 만든 내용입니다. 삭제한 문서의 근거는
           확인할 수 없습니다. 현재 등록된 문서로 AI 초안을 다시 생성해 주세요.
         </div>
       )}
-      {locked && (
+      {!generating && locked && (
         <div className="approved-banner">
           <CheckCheck size={20} />
           <div>
@@ -118,53 +145,55 @@ export default function ChecklistPanel({
           </button>
         </div>
       )}
-      <div className="review-toolbar">
-        <div className="filters" role="group" aria-label="검토 상태 필터">
-          {["전체", "미검토", "검토 완료"].map((f) => (
+      {!generating && items.length > 0 && (
+        <div className="review-toolbar">
+          <div className="filters" role="group" aria-label="검토 상태 필터">
+            {["전체", "미검토", "검토 완료"].map((f) => (
+              <button
+                key={f}
+                aria-pressed={filter === f}
+                className={filter === f ? "selected" : ""}
+                onClick={() => setFilter(f)}
+              >
+                {f}
+                <span>
+                  {f === "전체"
+                    ? items.length
+                    : f === "미검토"
+                      ? items.length - reviewed
+                      : reviewed}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="checklist-review-actions">
             <button
-              key={f}
-              aria-pressed={filter === f}
-              className={filter === f ? "selected" : ""}
-              onClick={() => setFilter(f)}
+              type="button"
+              disabled={
+                !!busy ||
+                locked ||
+                changed ||
+                !items.length ||
+                reviewed === items.length
+              }
+              onClick={markAllReviewed}
+              title="전체 내용을 확인한 뒤 사용하세요. 필터와 관계없이 모든 항목을 검토 완료로 표시합니다."
             >
-              {f}
-              <span>
-                {f === "전체"
-                  ? items.length
-                  : f === "미검토"
-                    ? items.length - reviewed
-                    : reviewed}
-              </span>
+              <CheckCheck size={16} />
+              모두 검토 완료로 표시
+              {items.length > reviewed && ` (${items.length - reviewed}개)`}
             </button>
-          ))}
+            <button
+              className="text-button"
+              disabled={!!busy || locked}
+              onClick={add}
+            >
+              <Plus size={16} />
+              항목 추가
+            </button>
+          </div>
         </div>
-        <div className="checklist-review-actions">
-          <button
-            type="button"
-            disabled={
-              !!busy ||
-              locked ||
-              changed ||
-              !items.length ||
-              reviewed === items.length
-            }
-            onClick={markAllReviewed}
-            title="전체 내용을 확인한 뒤 사용하세요. 필터와 관계없이 모든 항목을 검토 완료로 표시합니다."
-          >
-            <CheckCheck size={16} />
-            전체 검토 완료
-            {items.length > reviewed && ` (${items.length - reviewed}개)`}
-          </button>
-          <button
-            className="text-button"
-            disabled={!!busy || locked}
-            onClick={add}
-          >
-            <Plus size={16} />
-            항목 추가
-          </button>
-        </div>
-      </div>
+      )}
       {progress && busy !== "generate" && (
         <GenerationProgress
           progress={progress}
@@ -214,40 +243,47 @@ export default function ChecklistPanel({
           ))}
         </div>
       )}
-      <footer className="review-footer">
-        <div>
-          <strong>
-            {reviewed}
-            <span> / {items.length}개 검토 완료</span>
-          </strong>
-          <small>
-            {dirty
-              ? "저장하지 않은 변경 사항이 있어요"
-              : locked
-                ? "검토 결과가 확정되었습니다"
-                : "모든 항목을 검토하고 저장한 뒤 확정하세요"}
-          </small>
-        </div>
-        <div>
-          <button disabled={!!busy || locked || !dirty} onClick={saveChecklist}>
-            변경 저장
-          </button>
-          <button
-            className="primary"
-            disabled={
-              !!busy ||
-              locked ||
-              dirty ||
-              !items.length ||
-              reviewed !== items.length ||
-              changed
-            }
-            onClick={approveChecklist}
-          >
-            <CheckCheck size={16} /> 검토 확정
-          </button>
-        </div>
-      </footer>
+      {!generating && !locked && items.length > 0 && (
+        <footer className="review-footer">
+          <div>
+            <strong>
+              {reviewed}
+              <span> / {items.length}개 검토 완료</span>
+            </strong>
+            <small aria-live="polite">{nextAction}</small>
+            {dirty && remaining > 0 && (
+              <small>검토 중에도 변경 내용을 저장할 수 있어요.</small>
+            )}
+          </div>
+          <div>
+            {dirty && (
+              <button
+                className="primary"
+                disabled={!!busy || locked || !dirty}
+                onClick={saveChecklist}
+              >
+                변경 저장
+              </button>
+            )}
+            {!dirty && (
+              <button
+                className="primary"
+                disabled={
+                  !!busy ||
+                  locked ||
+                  dirty ||
+                  !items.length ||
+                  reviewed !== items.length ||
+                  changed
+                }
+                onClick={approveChecklist}
+              >
+                <CheckCheck size={16} /> 검토 최종 확정
+              </button>
+            )}
+          </div>
+        </footer>
+      )}
     </section>
   );
 }

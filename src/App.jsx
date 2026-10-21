@@ -111,6 +111,8 @@ function Workspace({ handoverId, currentUser, onExit }) {
     onExit();
   }
   const pageTitle = nav.find(([key]) => key === tab)?.[2];
+  const generating = busy === "generate";
+  const navigationBusy = featureBusy || (!!busy && !generating);
   return (
     <div className="shell">
       <Sidebar
@@ -118,6 +120,8 @@ function Workspace({ handoverId, currentUser, onExit }) {
         currentUser={currentUser}
         onBack={backToList}
         busy={busy || featureBusy}
+        navigationBusy={navigationBusy}
+        generating={generating}
         nav={nav}
         tab={tab}
         setTab={setTab}
@@ -136,6 +140,18 @@ function Workspace({ handoverId, currentUser, onExit }) {
           </span>
         </header>
         <main>
+          {generating && tab !== "checklist" && (
+            <div className="alert" role="status">
+              <LoaderCircle className="spin" size={17} />
+              <span>
+                체크리스트 초안을 생성하고 있어요. 문서는 조회할 수 있지만
+                생성이 끝날 때까지 변경할 수 없습니다.
+              </span>
+              <button onClick={() => setTab("checklist")}>
+                생성 진행 보기
+              </button>
+            </div>
+          )}
           {error && (
             <div className="alert error" role="alert">
               {error}
@@ -193,7 +209,7 @@ function Workspace({ handoverId, currentUser, onExit }) {
                   {state.permissions?.can_view_content !== false && (
                     <PageNavigation
                       tab={tab}
-                      busy={busy || featureBusy}
+                      busy={navigationBusy}
                       onNavigate={(next) => {
                         setTab(next);
                         setError("");
@@ -219,6 +235,7 @@ function Workspace({ handoverId, currentUser, onExit }) {
                   setSelected={setSelected}
                   onBusy={setFeatureBusy}
                   onRefresh={refresh}
+                  externalBusy={generating}
                 />
               ) : state.permissions?.can_manage === false ? (
                 <RecipientView

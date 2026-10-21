@@ -17,7 +17,7 @@ class ScheduleSettings(BaseModel):
     holidays: list[date] = Field(default_factory=list,max_length=100)
     durations: dict[str,int] = Field(default_factory=dict)
     dependencies: dict[str,list[str]] = Field(default_factory=dict)
-    unit: Literal['day','hour'] = 'day'  # Existing saved schedules remain day-based.
+    unit: Literal['day','hour','balanced'] = 'day'  # Preserve existing schedules.
     daily_hours: int = Field(default=4,ge=1,le=12)
     day_start: int = Field(default=9,ge=0,le=11)
 
@@ -51,7 +51,7 @@ def validate_settings(state,settings):
         raise HTTPException(422,'인수인계 시작일과 종료일을 먼저 입력해 주세요.')
     if settings.start < date.fromisoformat(h['start_date']) or settings.end > date.fromisoformat(h['end_date']):
         raise HTTPException(422,'일정은 인수인계 기간 안에 배치해 주세요.')
-    if set(settings.durations)!=ids or any(type(v)!=int or v<1 or v>365 for v in settings.durations.values()):
+    if settings.unit!='balanced' and (set(settings.durations)!=ids or any(type(v)!=int or v<1 or v>365 for v in settings.durations.values())):
         raise HTTPException(422,'모든 업무의 소요량을 1~365 범위의 정수로 입력해 주세요. 시간 단위 일정은 시간 수를 입력합니다.')
     if set(settings.dependencies)-ids: raise HTTPException(422,'알 수 없는 업무입니다.')
     for key, deps in settings.dependencies.items():
@@ -85,6 +85,20 @@ def validate_capacity(settings, fixed, start):
 
 def validate_rows(state, settings, rows, preserved=None):
     validate_settings(state,settings)
+    if settings.unit=='balanced':
+        by_id={r.item_id:r for r in rows}
+        if set(by_id)!={i['id'] for i in state['items']} or len(rows)!=len(by_id):
+            raise HTTPException(422,'모든 업무를 일정에 한 번씩 포함해 주세요.')
+        for row in rows:
+            if preserved and row.item_id in preserved:
+                old=ScheduleRow(**preserved[row.item_id])
+                if row!=old: raise HTTPException(422,'완료된 업무 일정은 변경할 수 없습니다.')
+                continue
+            if row.start!=row.end or not settings.start<=row.start<=settings.end or not working(row.start,settings) or row.start_time is not None or row.end_time is not None:
+                raise HTTPException(422,'업무는 기간 안의 업무일에 날짜 단위로 배치해 주세요.')
+            if any(by_id[d].end>row.start for d in settings.dependencies.get(row.item_id,[])):
+                raise HTTPException(422,'선행 업무보다 앞선 날짜로 이동할 수 없습니다.')
+        return
     if settings.unit=='hour':
         return validate_hour_rows(state,settings,rows,preserved)
     by_id={r.item_id:r for r in rows}
@@ -105,14 +119,14 @@ def validate_rows(state, settings, rows, preserved=None):
 
 async def propose(state, settings, reschedule, report):
     validate_settings(state,settings)
-    old=state.get('schedule',{}).get('confirmed',[])
+    old=state.get('schedule',{}).get('confirmed',[]) or list(state.get('schedule',{}).get('preserved_completed',{}).values())
     progress=state.get('progress',{})
     fixed={r['item_id']:r for r in old if progress.get(r['item_id'],{}).get('status')=='done'}
     if reschedule and not old: raise HTTPException(422,'확정 일정이 있어야 재조정할 수 있습니다.')
     if fixed and not reschedule: raise HTTPException(409,'완료된 업무가 있습니다. 일정 재조정을 사용해 주세요.')
     from zoneinfo import ZoneInfo
     from datetime import datetime
-    cursor=max(settings.start, datetime.now(ZoneInfo('Asia/Seoul')).date()) if reschedule else settings.start
+    cursor=max(settings.start, datetime.now(ZoneInfo('Asia/Seoul')).date()) if reschedule or settings.unit=='balanced' else settings.start
     slots=hour_slots(settings,cursor) if settings.unit=='hour' else []
     if settings.unit=='hour':
         occupied=fixed_slots(settings,fixed)
@@ -120,8 +134,10 @@ async def propose(state, settings, reschedule, report):
         available=sum(slot not in occupied for slot in slots)
         if required>available:
             raise HTTPException(422,f'총 {required}시간이 필요하지만 배치 가능한 시간은 {available}시간입니다. 기간이나 하루 가능 시간을 조정해 주세요.')
-    else:
+    elif settings.unit!='balanced':
         validate_capacity(settings, fixed if reschedule else {}, cursor)
+    elif cursor>settings.end or not any(working(cursor+timedelta(days=n),settings) for n in range((settings.end-cursor).days+1)):
+        if len(fixed)!=len(state['items']): raise HTTPException(422,'남은 인수인계 기간에 배치 가능한 업무일이 없습니다. 기간을 조정해 주세요.')
     report('analyze',f'{rag.chat_model()} · 일정 계획 Agent가 중요도와 선행 조건을 고려하고 있습니다.')
     async def plan(payload):
         return await json_call('일정 계획 Agent','인수인계 일정의 업무 배치 순서를 제안한다. 제공된 모든 item id를 정확히 한 번 포함한다. 중요도와 명시된 선행 조건을 고려하고 이유를 쓴다. 날짜나 소요 기간을 지어내지 마라. 출력: {"items":[{"item_id":"id","reason":"배치 이유"}]}', payload)
@@ -133,7 +149,9 @@ async def propose(state, settings, reschedule, report):
     for entry in result.items:
         if re.search(r'[\u3400-\u9fff\u3040-\u30ff]',entry.reason):
             entry.reason='선행 업무와 입력한 소요량을 기준으로 가능한 시간에 배치했습니다.'
-    report('validate','소요 시간·휴일·선행 조건·완료 업무 유지 여부를 검사합니다.')
+    report('validate','업무 배분·휴일·선행 조건·완료 업무 유지 여부를 검사합니다.')
+    if settings.unit=='balanced':
+        return allocate_balanced(state,settings,result.items,fixed if reschedule else {},cursor)
     if settings.unit=='hour':
         return allocate_hours(state,settings,result.items,fixed if reschedule else {},slots)
     rows={key:ScheduleRow(**row) for key,row in fixed.items()} if reschedule else {}
@@ -155,6 +173,25 @@ async def propose(state, settings, reschedule, report):
         cursor=days[-1]+timedelta(days=1); pending.remove(entry)
     output=list(rows.values())
     validate_rows(state,settings,output,fixed if reschedule else None)
+    return [r.model_dump(mode='json') for r in output]
+
+def allocate_balanced(state,settings,entries,fixed,start):
+    days=[start+timedelta(days=n) for n in range(max(0,(settings.end-start).days+1)) if working(start+timedelta(days=n),settings)]
+    rows={key:ScheduleRow(**row) for key,row in fixed.items()}
+    pending=[entry for entry in entries if entry.item_id not in rows]
+    total=len(pending)
+    if total and not days: raise HTTPException(422,'배치 가능한 업무일이 없습니다.')
+    for index in range(total):
+        entry=next((e for e in pending if set(settings.dependencies.get(e.item_id,[]))<=rows.keys()),None)
+        if entry is None: raise HTTPException(422,'선행 업무 관계를 확인해 주세요.')
+        slot=(index*len(days)//total) if total>=len(days) else (round(index*(len(days)-1)/(total-1)) if total>1 else 0)
+        earliest=max([days[slot]]+[rows[d].end for d in settings.dependencies.get(entry.item_id,[])])
+        day=next((d for d in days if d>=earliest),None)
+        if day is None: raise HTTPException(422,'선행 업무 이후 배치 가능한 날짜가 없습니다.')
+        rows[entry.item_id]=ScheduleRow(item_id=entry.item_id,start=day,end=day,reason=entry.reason)
+        pending.remove(entry)
+    output=list(rows.values())
+    validate_rows(state,settings,output,fixed)
     return [r.model_dump(mode='json') for r in output]
 
 def hour_slots(settings,start=None):

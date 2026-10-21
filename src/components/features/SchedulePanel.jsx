@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../../services/api";
+import ScheduleCalendar from "./ScheduleCalendar";
 export default function SchedulePanel({
   state,
   data,
@@ -8,8 +9,31 @@ export default function SchedulePanel({
   run,
   refresh,
   setError,
+  prefix,
+  onCalendarBusy,
 }) {
   const items = state.items;
+  const staleDraft =
+    !!data.schedule.draft &&
+    (data.draft_current === false ||
+      data.schedule.draft.rows.some(
+        (row) => !items.some((item) => item.id === row.item_id),
+      ));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  async function generateSchedule() {
+    const success = await run(
+      "/schedule/generate/stream",
+      {
+        settings: proposalSettings(),
+        reschedule:
+          !!data.schedule.confirmed?.length ||
+          Object.keys(data.schedule.preserved_completed || {}).length > 0,
+      },
+      "POST",
+      true,
+    );
+    if (success) setSettingsOpen(false);
+  }
   const [settings, setSettings] = useState(
     () =>
       data.schedule.settings || {
@@ -21,7 +45,7 @@ export default function SchedulePanel({
         dependencies: Object.fromEntries(
           items.map((i) => [i.id, i.dependencies || []]),
         ),
-        unit: "hour",
+        unit: "balanced",
         daily_hours: 4,
         day_start: 9,
       },
@@ -29,8 +53,19 @@ export default function SchedulePanel({
   const [holidayText, setHolidayText] = useState(
     (settings.holidays || []).join(", "),
   );
+  const [holidayDate, setHolidayDate] = useState("");
+  const holidays = [
+    ...new Set(
+      holidayText
+        .split(",")
+        .map((day) => day.trim())
+        .filter(Boolean),
+    ),
+  ].sort();
   const proposalSettings = () => ({
     ...settings,
+    unit: "balanced",
+    durations: {},
     dependencies: Object.fromEntries(
       items.map((i) => [i.id, i.dependencies || []]),
     ),
@@ -39,18 +74,49 @@ export default function SchedulePanel({
       .map((s) => s.trim())
       .filter(Boolean),
   });
-  const [draft, setDraft] = useState(data.schedule.draft?.rows || []),
+  const [draft, setDraft] = useState(
+      staleDraft ? [] : data.schedule.draft?.rows || [],
+    ),
     [selected, setSelected] = useState([]);
   useEffect(() => {
-    setDraft(data.schedule.draft?.rows || []);
+    setDraft(staleDraft ? [] : data.schedule.draft?.rows || []);
     if (data.schedule.draft?.settings) {
       setSettings(data.schedule.draft.settings);
       setHolidayText(data.schedule.draft.settings.holidays.join(", "));
     }
-  }, [data.schedule.draft]);
+  }, [data.schedule.draft, staleDraft]);
   const confirmed = data.schedule.confirmed || [];
   const title = (id) => items.find((i) => i.id === id)?.title || id;
   const ready = state.status === "approved";
+  const calendarLockReason = !ready
+    ? "체크리스트가 검토 중이라 일정 이동이 잠겨 있습니다. 체크리스트에서 변경 저장 후 검토 확정을 진행해 주세요."
+    : data.draft_current === false
+      ? "체크리스트가 변경되어 이전 일정 초안은 이동할 수 없습니다. 위의 AI 일정 생성/재조정으로 새 초안을 만들어 주세요."
+      : "";
+  const [moveNotice, setMoveNotice] = useState("");
+  async function moveCalendarItem(item_id, start, hour) {
+    if (busy || calendarLockReason) return false;
+    onCalendarBusy(true);
+    setError("");
+    setMoveNotice("");
+    try {
+      const result = await api(prefix + "/schedule/move", "POST", {
+        revision: data.revision,
+        rows: draft,
+        item_id,
+        start,
+        hour,
+      });
+      setDraft(result.rows);
+      setMoveNotice("일정 초안을 이동했습니다. ‘일정 확정’을 눌러 저장하세요.");
+      return true;
+    } catch (error) {
+      setError(error.message);
+      return false;
+    } finally {
+      onCalendarBusy(false);
+    }
+  }
   async function connect() {
     try {
       const d = await api("/calendar/connect", "POST", {});
@@ -61,256 +127,251 @@ export default function SchedulePanel({
   }
   return (
     <>
+      {owner && staleDraft && (
+        <div className="inline-warning" role="status">
+          체크리스트가 변경되어 이전 일정 초안을 표시하지 않습니다. 기간과
+          휴일을 확인한 뒤 ‘AI 일정 생성’을 눌러 현재 항목과 선행 업무를 반영해
+          주세요.
+        </div>
+      )}
       {!ready && (
         <div className="inline-warning">
           체크리스트를 확정하면 일정을 작성할 수 있습니다.
         </div>
       )}
       {owner && (
-        <div className="feature-card">
-          <h2>AI 일정 계획</h2>
-          <p>
-            업무별 소요 시간을 확인해 주세요. 선행 업무는 체크리스트에서 확정한
-            관계를 사용합니다. 같은 날 여러 업무를 배치하며 AI가 순서를 제안하고
-            시스템이 날짜 조건을 검사합니다.
-          </p>
-          <fieldset disabled={busy || !ready}>
-            <div className="feature-form-row">
-              {settings.unit === "hour" && (
-                <>
-                  <label>
-                    하루 가능 시간
-                    <input
-                      type="number"
-                      min="1"
-                      max="12"
-                      value={settings.daily_hours}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          daily_hours: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    시작 시각 (시)
-                    <input
-                      type="number"
-                      min="0"
-                      max="11"
-                      value={settings.day_start}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          day_start: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </label>
-                </>
-              )}
-
-              <label>
-                시작일
+        <div className="feature-card schedule-settings-card">
+          <div className="schedule-control-bar">
+            <div>
+              <strong>인수인계 기간</strong>
+              <div className="schedule-period-inputs">
                 <input
+                  aria-label="인수인계 시작일"
                   type="date"
                   value={settings.start}
+                  disabled={busy || !ready}
                   onChange={(e) =>
                     setSettings({ ...settings, start: e.target.value })
                   }
                 />
-              </label>
-              <label>
-                종료일
+                <span>~</span>
                 <input
+                  aria-label="인수인계 종료일"
                   type="date"
                   value={settings.end}
+                  min={settings.start}
+                  disabled={busy || !ready}
                   onChange={(e) =>
                     setSettings({ ...settings, end: e.target.value })
                   }
                 />
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.weekends}
-                  onChange={(e) =>
-                    setSettings({ ...settings, weekends: e.target.checked })
-                  }
-                />
-                주말 포함
-              </label>
+                {(settings.start !== state.handover.start_date ||
+                  settings.end !== state.handover.end_date) && (
+                  <small>변경 미적용 · 일정 생성 시 저장</small>
+                )}
+              </div>
             </div>
-            <label>
-              휴일 (YYYY-MM-DD, 쉼표로 구분)
-              <input
-                placeholder="2026-10-09, 2026-12-25"
-                value={holidayText}
-                onChange={(e) => setHolidayText(e.target.value)}
-              />
-            </label>
-            <div className="feature-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>업무</th>
-                    <th>
-                      {settings.unit === "hour"
-                        ? "소요 시간"
-                        : "소요 업무일 (기존 일정)"}
-                    </th>
-                    <th>확정된 선행 업무</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((i) => (
-                    <tr key={i.id}>
-                      <td>
-                        {i.title}
-                        <small>{i.priority}</small>
-                      </td>
-                      <td>
-                        <input
-                          aria-label={
-                            i.title +
-                            (settings.unit === "hour"
-                              ? " 소요 시간"
-                              : " 소요 업무일")
-                          }
-                          type="number"
-                          min="1"
-                          max="365"
-                          value={settings.durations[i.id] || 1}
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              durations: {
-                                ...settings.durations,
-                                [i.id]: Number(e.target.value),
-                              },
-                            })
-                          }
-                        />
-                      </td>
-                      <td>
-                        {(i.dependencies || []).length ? (
-                          <ul>
-                            {i.dependencies.map((id) => (
-                              <li key={id}>{title(id)}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span>선행 업무 없음</span>
-                        )}
-                        <small>체크리스트 검토에서 설정</small>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="feature-actions">
+            <div className="schedule-control-actions">
               <button
+                type="button"
+                aria-expanded={settingsOpen}
+                aria-controls="schedule-settings"
+                disabled={busy}
+                onClick={() => setSettingsOpen(!settingsOpen)}
+              >
+                주말·휴일 설정 {settingsOpen ? "접기" : "열기"}
+              </button>
+              <button
+                type="button"
                 className="primary"
-                onClick={() =>
-                  run(
-                    "/schedule/generate/stream",
-                    { settings: proposalSettings(), reschedule: false },
-                    "POST",
-                    true,
-                  )
-                }
+                disabled={busy || !ready}
+                onClick={generateSchedule}
               >
-                AI 일정 초안 작성
-              </button>
-              <button
-                disabled={!confirmed.length}
-                onClick={() =>
-                  run(
-                    "/schedule/generate/stream",
-                    { settings: proposalSettings(), reschedule: true },
-                    "POST",
-                    true,
-                  )
-                }
-              >
-                진행 상황으로 일정 재조정
+                {confirmed.length
+                  ? "AI 일정 재조정"
+                  : draft.length
+                    ? "AI 일정 다시 생성"
+                    : "AI 일정 생성"}
               </button>
             </div>
-          </fieldset>
+          </div>
+          {!draft.length && !confirmed.length && (
+            <p className="schedule-first-help">
+              남은 업무일에 항목 수를 고르게 나눕니다. 하루 개수 제한은
+              없습니다. 생성된 일정은 달력에서 옮길 수 있습니다.
+            </p>
+          )}
+          {settingsOpen && (
+            <div id="schedule-settings" className="schedule-settings-body">
+              <fieldset
+                className="schedule-day-options"
+                disabled={busy || !ready}
+              >
+                <div className="schedule-weekend-option">
+                  <strong>주말 배치</strong>
+                  <label className="schedule-weekend-toggle">
+                    <input
+                      type="checkbox"
+                      checked={settings.weekends}
+                      onChange={(e) =>
+                        setSettings({ ...settings, weekends: e.target.checked })
+                      }
+                    />
+                    토요일·일요일에도 배치
+                  </label>
+                  <small>선택하지 않으면 평일에만 배치합니다.</small>
+                </div>
+                <div className="schedule-holiday-option">
+                  <label htmlFor="schedule-holiday-date">
+                    배치에서 제외할 날짜
+                  </label>
+                  <div className="schedule-holiday-add">
+                    <input
+                      id="schedule-holiday-date"
+                      type="date"
+                      value={holidayDate}
+                      onChange={(e) => setHolidayDate(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      disabled={!holidayDate || holidays.includes(holidayDate)}
+                      onClick={() => {
+                        setHolidayText(
+                          [...holidays, holidayDate].sort().join(", "),
+                        );
+                        setHolidayDate("");
+                      }}
+                    >
+                      날짜 추가
+                    </button>
+                  </div>
+                  <div className="schedule-holiday-list" aria-live="polite">
+                    {holidays.length ? (
+                      holidays.map((day) => (
+                        <button
+                          type="button"
+                          key={day}
+                          aria-label={`${day} 제외 날짜 삭제`}
+                          onClick={() =>
+                            setHolidayText(
+                              holidays
+                                .filter((value) => value !== day)
+                                .join(", "),
+                            )
+                          }
+                        >
+                          {day} <span aria-hidden="true">×</span>
+                        </button>
+                      ))
+                    ) : (
+                      <small>추가한 제외 날짜가 없습니다.</small>
+                    )}
+                  </div>
+                </div>
+              </fieldset>
+              <p className="schedule-options-note">
+                변경한 설정은 AI 일정 생성·재조정 시 적용됩니다.
+              </p>
+            </div>
+          )}
         </div>
       )}
       {owner && draft.length > 0 && (
         <div className="feature-card">
           <h2>일정 초안 검토</h2>
+          {calendarLockReason && (
+            <div className="calendar-lock-message" role="status">
+              <strong>이전 일정 · 보기 전용</strong>
+              <p>{calendarLockReason}</p>
+            </div>
+          )}
           <p>
-            완료된 업무를 유지하면서 날짜와 조건을 검토하세요. 확정 전에는 기존
-            일정이 유지됩니다.
+            날짜와 선행 업무를 확인하고 일정을 확정하세요. 완료된 업무의 날짜는
+            유지됩니다.
           </p>
-          <div className="feature-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>업무</th>
-                  <th>시작</th>
-                  <th>종료</th>
-                  <th>배치 이유</th>
-                </tr>
-              </thead>
-              <tbody>
-                {draft.map((r, n) => (
-                  <tr key={r.item_id}>
-                    <td>{title(r.item_id)}</td>
-                    {["start", "end"].map((k) => (
-                      <td key={k}>
-                        <input
-                          type="date"
-                          aria-label={title(r.item_id) + " " + k}
-                          disabled={
-                            busy || data.progress[r.item_id]?.status === "done"
-                          }
-                          value={r[k]}
-                          onChange={(e) =>
-                            setDraft(
-                              draft.map((x, j) =>
-                                j === n ? { ...x, [k]: e.target.value } : x,
-                              ),
-                            )
-                          }
-                        />
-                        {settings.unit === "hour" && (
+          {["hour", "balanced"].includes(
+            data.schedule.draft?.settings?.unit,
+          ) && (
+            <ScheduleCalendar
+              rows={draft}
+              settings={data.schedule.draft.settings}
+              items={items}
+              progress={data.progress}
+              disabled={busy || !!calendarLockReason}
+              lockReason={calendarLockReason}
+              onMove={moveCalendarItem}
+            />
+          )}
+          {moveNotice && <p role="status">{moveNotice}</p>}
+          <details className="calendar-table-editor">
+            <summary>목록으로 날짜·시간 자세히 수정</summary>
+            <div className="feature-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>업무</th>
+                    <th>시작</th>
+                    <th>종료</th>
+                    <th>배치 이유</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draft.map((r, n) => (
+                    <tr key={r.item_id}>
+                      <td>{title(r.item_id)}</td>
+                      {["start", "end"].map((k) => (
+                        <td key={k}>
                           <input
-                            type="time"
-                            step="3600"
-                            aria-label={title(r.item_id) + " " + k + " 시각"}
-                            value={(r[k + "_time"] || "").slice(0, 5)}
+                            type="date"
+                            aria-label={title(r.item_id) + " " + k}
                             disabled={
                               busy ||
+                              !!calendarLockReason ||
                               data.progress[r.item_id]?.status === "done"
                             }
+                            value={r[k]}
                             onChange={(e) =>
                               setDraft(
                                 draft.map((x, j) =>
-                                  j === n
-                                    ? { ...x, [k + "_time"]: e.target.value }
-                                    : x,
+                                  j === n ? { ...x, [k]: e.target.value } : x,
                                 ),
                               )
                             }
                           />
-                        )}
-                      </td>
-                    ))}
-                    <td>{r.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                          {settings.unit === "hour" && (
+                            <input
+                              type="time"
+                              step="3600"
+                              aria-label={title(r.item_id) + " " + k + " 시각"}
+                              value={(r[k + "_time"] || "").slice(0, 5)}
+                              disabled={
+                                busy ||
+                                !!calendarLockReason ||
+                                data.progress[r.item_id]?.status === "done"
+                              }
+                              onChange={(e) =>
+                                setDraft(
+                                  draft.map((x, j) =>
+                                    j === n
+                                      ? { ...x, [k + "_time"]: e.target.value }
+                                      : x,
+                                  ),
+                                )
+                              }
+                            />
+                          )}
+                        </td>
+                      ))}
+                      <td>{r.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
           <button
             className="primary"
-            disabled={busy}
+            disabled={busy || !!calendarLockReason}
             onClick={() => run("/schedule/confirm", { rows: draft })}
           >
             일정 확정

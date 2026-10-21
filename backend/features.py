@@ -16,6 +16,10 @@ class Proposal(Version):
     reschedule:bool=False
 class ScheduleEdit(Version):
     rows:list[scheduling.ScheduleRow]
+class ScheduleMove(ScheduleEdit):
+    item_id:str
+    start:str
+    hour:int=Field(ge=0,le=23)
 class ProgressEdit(Version):
     item_ids:list[str]=Field(min_length=1,max_length=100)
     status:Literal['todo','doing','done']
@@ -23,6 +27,9 @@ class Ask(Version):
     conversation_id:str|None=None
     question:str=Field(min_length=1,max_length=4000)
 class Question(Version): content:str=Field(min_length=1,max_length=8000)
+class ForwardQuestion(Question):
+    conversation_id:str|None=None
+    message_id:str|None=None
 class ActionConfirm(Version):
     conversation_id:str
     message_id:str
@@ -74,6 +81,7 @@ def install(m):
         public={k:v for k,v in schedule.items() if k!='draft'}
         if own and schedule.get('draft'): public['draft']=schedule['draft']
         return {'revision':state['revision'],'schedule':public,'schedule_current':schedule.get('fingerprint')==scheduling.fingerprint(state),
+            'draft_current':schedule.get('draft',{}).get('fingerprint')==scheduling.fingerprint(state),
             'progress':state.get('progress',{}),'questions':state.get('questions',[]),
             'conversations':[c for c in state.get('conversations',[]) if c['user_id']==user['id']],
             'signature':state.get('signature') if own else None,'calendar_results':state.get('calendar_results',{}).get(user['id'],[]),
@@ -81,23 +89,68 @@ def install(m):
     @router.post('/schedule/generate/stream')
     async def schedule_generate(body:Proposal,user=Depends(m.current_user)):
         state=m.read_state();owner(state,user);approved(state);m.check_revision(state,body.revision)
+        # The schedule form edits the handover period itself. Persist only after
+        # planning succeeds so a failed request preserves both period and schedule.
+        state['handover'].update(start_date=str(body.settings.start),end_date=str(body.settings.end))
+        previous=state.get('schedule',{})
+        completed=previous.get('preserved_completed',{}) | {r['item_id']:r for r in previous.get('confirmed',[]) if state.get('progress',{}).get(r['item_id'],{}).get('status')=='done'}
+        if any(r['start']<str(body.settings.start) or r['end']>str(body.settings.end) for r in completed.values()):
+            raise HTTPException(422,'완료된 업무 날짜를 포함하도록 인수인계 기간을 설정해 주세요.')
         # Reviewed checklist relations are authoritative, not the schedule form.
         body.settings.dependencies={i['id']:i.get('dependencies',[]) for i in state['items']}
         async def run(report):
             rows=await scheduling.propose(state,body.settings,body.reschedule,report)
             with m.LOCK:
                 current=m.read_state();owner(current,user);approved(current);m.check_revision(current,body.revision)
-                current.setdefault('schedule',{})['draft']={'rows':rows,'settings':body.settings.model_dump(mode='json'),'fingerprint':scheduling.fingerprint(current),'reschedule':body.reschedule}
+                previous=current.get('schedule',{})
+                preserved=previous.get('preserved_completed',{}) | {r['item_id']:r for r in previous.get('confirmed',[]) if current.get('progress',{}).get(r['item_id'],{}).get('status')=='done'}
+                current['handover'].update(start_date=str(body.settings.start),end_date=str(body.settings.end))
+                current['schedule']={'draft':{'rows':rows,'settings':body.settings.model_dump(mode='json'),'fingerprint':scheduling.fingerprint(current),'reschedule':body.reschedule},'preserved_completed':preserved}
+                current.pop('signature',None)
                 m.write_state(current)
             report('done','일정 초안을 작성했습니다. 날짜와 배치 이유를 확인하고 확정해 주세요.')
         return m.progress_response(run)
+    @router.post('/schedule/move')
+    def schedule_move(body:ScheduleMove,user=Depends(m.current_user)):
+        state=m.read_state();owner(state,user);approved(state);m.check_revision(state,body.revision)
+        draft=state.get('schedule',{}).get('draft')
+        if not draft or draft['fingerprint']!=scheduling.fingerprint(state):
+            raise HTTPException(409,'최신 체크리스트로 일정 초안을 다시 생성해 주세요.')
+        settings=scheduling.ScheduleSettings(**draft['settings'])
+        if settings.unit not in ('hour','balanced'): raise HTTPException(422,'새 일정 초안을 생성해 주세요.')
+        fixed=state.get('schedule',{}).get('preserved_completed',{}) | {r['item_id']:r for r in state.get('schedule',{}).get('confirmed',[]) if state.get('progress',{}).get(r['item_id'],{}).get('status')=='done'}
+        if body.item_id in fixed: raise HTTPException(409,'완료된 업무는 이동할 수 없습니다.')
+        from datetime import date,time
+        try: target=(date.fromisoformat(body.start),body.hour)
+        except ValueError: raise HTTPException(422,'올바른 날짜를 선택해 주세요.')
+        if settings.unit=='balanced':
+            if body.item_id not in {r.item_id for r in body.rows}: raise HTTPException(422,'업무를 찾을 수 없습니다.')
+            rows=[r.model_copy(deep=True) for r in body.rows]
+            for row in rows:
+                if row.item_id==body.item_id:
+                    row.start=row.end=target[0];row.start_time=row.end_time=None
+            scheduling.validate_rows(state,settings,rows,fixed)
+            return {'rows':[r.model_dump(mode='json') for r in rows]}
+        slots=scheduling.hour_slots(settings)
+        if target not in slots or body.item_id not in settings.durations:
+            raise HTTPException(422,'인수인계 기간과 하루 가능 시간 안의 업무일로 이동해 주세요.')
+        start=slots.index(target); selected=slots[start:start+settings.durations[body.item_id]]
+        if len(selected)!=settings.durations[body.item_id]: raise HTTPException(422,'남은 기간에 업무 소요 시간을 배치할 수 없습니다.')
+        rows=[r.model_copy(deep=True) for r in body.rows]
+        for row in rows:
+            if row.item_id==body.item_id:
+                row.start=selected[0][0];row.start_time=time(selected[0][1])
+                row.end=selected[-1][0];row.end_time=time(selected[-1][1]+1)
+        scheduling.validate_rows(state,settings,rows,fixed)
+        return {'rows':[r.model_dump(mode='json') for r in rows]}
+
     @router.post('/schedule/confirm')
     def schedule_confirm(body:ScheduleEdit,user=Depends(m.current_user)):
         with m.LOCK:
             state=m.read_state();owner(state,user);approved(state);m.check_revision(state,body.revision)
             draft=state.get('schedule',{}).get('draft')
             if not draft or draft['fingerprint']!=scheduling.fingerprint(state): raise HTTPException(409,'최신 자료로 일정 초안을 생성해 주세요.')
-            fixed={r['item_id']:r for r in state.get('schedule',{}).get('confirmed',[]) if state.get('progress',{}).get(r['item_id'],{}).get('status')=='done'}
+            fixed=state.get('schedule',{}).get('preserved_completed',{}) | {r['item_id']:r for r in state.get('schedule',{}).get('confirmed',[]) if state.get('progress',{}).get(r['item_id'],{}).get('status')=='done'}
             scheduling.validate_rows(state,scheduling.ScheduleSettings(**draft['settings']),body.rows,fixed)
             state['schedule']={'confirmed':[r.model_dump(mode='json') for r in body.rows],'settings':draft['settings'],'fingerprint':draft['fingerprint'],'confirmed_at':m.now()}
             state.pop('signature',None);m.write_state(state)
@@ -108,11 +161,19 @@ def install(m):
             state=m.read_state();m.check_revision(state,body.revision);persist_progress(state,body,user);m.write_state(state)
         return {'ok':True}
     @router.post('/questions')
-    def question(body:Question,user=Depends(m.current_user)):
+    def question(body:ForwardQuestion,user=Depends(m.current_user)):
         with m.LOCK:
             state=m.read_state();successor(state,user);approved(state);m.check_revision(state,body.revision)
             if not body.content.strip(): raise HTTPException(422,'질문을 입력해 주세요.')
-            state.setdefault('questions',[]).append({'id':str(uuid.uuid4()),'question':body.content.strip(),'author':user['name'],'created_at':m.now(),'answer':None})
+            context={}
+            if body.conversation_id or body.message_id:
+                conv=next((c for c in state.get('conversations',[]) if c['id']==body.conversation_id and c['user_id']==user['id']),None)
+                msg=next((x for x in (conv or {}).get('messages',[]) if x['id']==body.message_id),None)
+                if not msg: raise HTTPException(404,'전달할 대화를 찾지 못했습니다.')
+                if any(q.get('message_id')==body.message_id for q in state.get('questions',[])):
+                    return {'ok':True}
+                context={'conversation_id':conv['id'],'message_id':msg['id'],'ai_answer':msg['answer'],'evidence':msg.get('evidence',[])}
+            state.setdefault('questions',[]).append({'id':str(uuid.uuid4()),'question':body.content.strip(),'author':user['name'],'created_at':m.now(),'answer':None,**context})
             m.write_state(state)
         return {'ok':True}
     @router.post('/questions/{question_id}/answer')

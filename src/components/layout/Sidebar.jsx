@@ -6,6 +6,8 @@ export default function Sidebar({
   currentUser,
   onBack,
   busy,
+  navigationBusy = busy,
+  generating = false,
   nav,
   tab,
   setTab,
@@ -42,7 +44,7 @@ export default function Sidebar({
           <button
             key={key}
             className={tab === key ? "nav active" : "nav"}
-            disabled={!!busy}
+            disabled={!!navigationBusy}
             onClick={() => {
               setTab(key);
               setError("");
@@ -51,7 +53,10 @@ export default function Sidebar({
           >
             <Icon size={19} />
             {label}
-            {key === "checklist" && items.length > 0 && (
+            {key === "checklist" && generating && (
+              <span className="count">생성 중</span>
+            )}
+            {key === "checklist" && !generating && items.length > 0 && (
               <span className="count">{items.length}</span>
             )}
           </button>

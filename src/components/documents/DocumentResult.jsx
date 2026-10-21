@@ -3,6 +3,11 @@ import { ArrowUpRight, Check, CircleHelp } from "lucide-react";
 export default function DocumentResult({ doc, onOpen }) {
   const rag = doc.rag || {},
     ready = rag.status === "ready";
+  const notices = [...new Set(
+    [...(doc.warnings || []), ...(rag.limitations || [])]
+      .map((message) => message.trim())
+      .filter(Boolean),
+  )];
   const rows = [
     ["텍스트·표 추출", `${doc.text.length.toLocaleString()}자 추출`, true],
     ...(doc.slide_count
@@ -58,10 +63,9 @@ export default function DocumentResult({ doc, onOpen }) {
           <p style={{whiteSpace:'pre-wrap',maxHeight:420,overflowY:'auto'}}>{rag.organized_text}</p>
         </details>
       )}
-      {doc.warnings?.length > 0 && (
-        <p className="analysis-error">{doc.warnings.join(" / ")}</p>
+      {notices.length > 0 && (
+        <p className="analysis-error">{notices.join(" / ")}</p>
       )}
-      {rag.limitations?.length>0 && <p className="analysis-error">{rag.limitations.join(' / ')}</p>}
       {rag.error && <p className="analysis-error">{rag.error}</p>}
     </div>
   );

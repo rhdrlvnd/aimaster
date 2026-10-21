@@ -76,10 +76,25 @@ class WorkflowTests(unittest.TestCase):
 
     def test_stream_failure_does_not_overwrite(self):
         state = self.seed()
+        state.update(schedule={'draft': {'rows': []}, 'confirmed': [{'item_id': 'old'}]}, progress={'old': {'status': 'done'}}, signature={'name': 'owner'})
+        module.write_state(state)
         with patch.object(module, 'generate', AsyncMock(side_effect=module.HTTPException(504, 'timeout'))):
             response = self.client.post('/api/generate/stream', json={'revision':state['revision']})
         self.assertEqual(module.json.loads(response.text)['stage'], 'error')
         self.assertEqual(self.state()['items'], state['items'])
+        for key in ('schedule', 'progress', 'signature'):
+            self.assertEqual(module.read_state()[key], state[key])
+
+    def test_regeneration_clears_old_schedule_after_success(self):
+        state = self.seed()
+        state.update(schedule={'draft': {'rows': []}, 'confirmed': [{'item_id': 'old'}]}, progress={'old': {'status': 'done'}}, signature={'name': 'owner'})
+        module.write_state(state)
+        item = module.Item(title='새 업무', description='업무 확인', category='운영', priority='보통', evidence=[])
+        with patch.object(module, 'generate', AsyncMock(return_value=[item])):
+            response = self.client.post('/api/generate/stream', json={'revision':state['revision']})
+        self.assertEqual(module.json.loads(response.text.splitlines()[-1])['stage'], 'done')
+        for key in ('schedule', 'progress', 'signature'):
+            self.assertNotIn(key, module.read_state())
 
     def test_review_approval_reopen_and_persistence(self):
         state = self.seed()

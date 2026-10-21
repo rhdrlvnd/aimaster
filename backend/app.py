@@ -775,6 +775,9 @@ async def run_generation(body, report=None):
         current = read_state()
         check_revision(current, body.revision)
         current['items'] = generated
+        # New item IDs invalidate all local scheduling and completion state.
+        for key in ('schedule', 'progress', 'signature'):
+            current.pop(key, None)
         current.update(status='review', source='ai', generated_at=now(), approved_at=None)
         write_state(current)
     return {'ok': True}

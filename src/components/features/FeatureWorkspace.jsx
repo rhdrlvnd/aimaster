@@ -13,6 +13,7 @@ export default function FeatureWorkspace({
   setSelected,
   onBusy,
   onRefresh,
+  externalBusy = false,
 }) {
   const prefix = "/handovers/" + handoverId;
   const [data, setData] = useState(null),
@@ -20,6 +21,7 @@ export default function FeatureWorkspace({
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [progress, setProgress] = useState(null);
+  const [scheduleGenerating, setScheduleGenerating] = useState(false);
   const owner = state.permissions.can_manage;
   async function load() {
     const result = await api(prefix + "/features");
@@ -44,8 +46,9 @@ export default function FeatureWorkspace({
     };
   }, [busy]);
   async function run(path, body, method = "POST", stream = false) {
-    if (busy) return false;
+    if (busy || externalBusy) return false;
     setBusy(true);
+    setScheduleGenerating(path === "/schedule/generate/stream");
     setError("");
     setNotice("");
     setProgress(null);
@@ -68,6 +71,7 @@ export default function FeatureWorkspace({
       return false;
     } finally {
       setBusy(false);
+      setScheduleGenerating(false);
     }
   }
   if (!data)
@@ -80,12 +84,13 @@ export default function FeatureWorkspace({
     state,
     data,
     owner,
-    busy,
+    busy: busy || externalBusy,
     run,
     currentUser,
     prefix,
     refresh: load,
     setError,
+    onCalendarBusy: setBusy,
   };
   return (
     <section className="feature-workspace">
@@ -111,7 +116,11 @@ export default function FeatureWorkspace({
           {owner && <ExportPanel {...props} />}
         </>
       )}
-      {tab === "schedule" && <SchedulePanel {...props} />}
+      {tab === "schedule" && (
+        <div className="schedule-panel-stack" hidden={scheduleGenerating}>
+          <SchedulePanel {...props} />
+        </div>
+      )}
       {tab === "qa" && <QuestionsPanel {...props} setSelected={setSelected} />}
     </section>
   );

@@ -30,6 +30,32 @@ class FeatureTests(unittest.TestCase):
   return self.features()['schedule']['draft']['rows']
  def confirm(self):
   rows=self.draft();r=self.post('/schedule/confirm',rows=rows);self.assertEqual(r.status_code,200,r.text);return rows
+ def test_regeneration_failure_preserves_schedule(self):
+  self.confirm();before=self.features()['schedule']
+  with patch.object(scheduling,'propose',AsyncMock(side_effect=m.HTTPException(502,'failed'))):
+   response=self.post('/schedule/generate/stream',settings=self.settings,reschedule=True)
+  self.assertEqual(json.loads(response.text.splitlines()[-1])['stage'],'error')
+  self.assertEqual(self.features()['schedule'],before)
+ def test_regeneration_success_replaces_confirmed_with_draft(self):
+  rows=self.confirm()
+  with patch.object(scheduling,'propose',AsyncMock(return_value=rows)):
+   response=self.post('/schedule/generate/stream',settings=self.settings,reschedule=True)
+  self.assertEqual(json.loads(response.text.splitlines()[-1])['stage'],'done')
+  self.assertNotIn('confirmed',self.features()['schedule'])
+  self.assertEqual(self.features()['schedule']['draft']['rows'],rows)
+ def test_schedule_period_updates_handover_atomically(self):
+  self.settings.update(start='2027-01-04',end='2027-01-15')
+  self.draft()
+  self.assertEqual(self.state()['handover']['start_date'],'2027-01-04')
+  self.assertEqual(self.state()['handover']['end_date'],'2027-01-15')
+  self.assertTrue(self.features()['draft_current'])
+  before=self.state()['handover'];schedule=self.features()['schedule']
+  self.settings.update(end='2027-01-20')
+  with patch.object(scheduling,'propose',AsyncMock(side_effect=m.HTTPException(502,'failed'))):
+   response=self.post('/schedule/generate/stream',settings=self.settings)
+  self.assertEqual(json.loads(response.text.splitlines()[-1])['stage'],'error')
+  self.assertEqual(self.state()['handover'],before)
+  self.assertEqual(self.features()['schedule'],schedule)
  def test_schedule_validation_progress_and_export(self):
   rows=self.confirm();by={r['item_id']:r for r in rows}
   self.assertEqual(by['a']['start'],'2026-10-26');self.assertEqual(by['b']['start'],'2026-10-28');self.assertEqual(by['b']['end'],'2026-10-29')
@@ -93,6 +119,27 @@ class FeatureTests(unittest.TestCase):
   self.assertEqual(by['b']['start'],'2026-10-26')
   self.assertEqual(by['b']['end'],'2026-10-28')
   self.assertEqual(by['b']['end_time'],'10:00:00')
+ def test_calendar_move_validates_without_saving_until_confirm(self):
+  self.settings.update(unit='hour',daily_hours=4,day_start=9)
+  rows=self.draft()
+  moved=self.post('/schedule/move',rows=rows,item_id='b',start='2026-10-28',hour=9)
+  self.assertEqual(moved.status_code,200,moved.text)
+  self.assertEqual(next(r for r in moved.json()['rows'] if r['item_id']=='b')['end_time'],'11:00:00')
+  self.assertEqual(self.features()['schedule']['draft']['rows'],rows)
+  self.assertEqual(self.post('/schedule/move',rows=rows,item_id='b',start='2026-10-26',hour=9).status_code,422)
+  self.assertEqual(self.post('/schedule/move',rows=rows,item_id='b',start='2026-10-27',hour=9).status_code,422)
+  self.assertEqual(self.post('/schedule/move',rows=rows,item_id='a',start='2026-10-28',hour=9).status_code,422)
+  self.assertEqual(self.post('/schedule/confirm',rows=moved.json()['rows']).status_code,200)
+ def test_calendar_move_preserves_completed_tasks_and_permissions(self):
+  self.settings.update(unit='hour',daily_hours=4,day_start=9)
+  rows=self.confirm()
+  self.login('demo-next');self.post('/progress',item_ids=['a'],status='done')
+  self.assertEqual(self.post('/schedule/move',rows=rows,item_id='a',start='2026-10-28',hour=9).status_code,403)
+  self.login('demo-dev')
+  with patch.object(scheduling,'json_call',AsyncMock(return_value={'items':[{'item_id':'a','reason':'유지'},{'item_id':'b','reason':'후속'}]})):
+   self.post('/schedule/generate/stream',settings=self.settings,reschedule=True)
+  rows=self.features()['schedule']['draft']['rows']
+  self.assertEqual(self.post('/schedule/move',rows=rows,item_id='a',start='2026-10-28',hour=9).status_code,409)
  def test_hour_reschedule_preserves_completed_time(self):
   self.settings.update(unit='hour',daily_hours=4,day_start=9)
   original=self.confirm()
@@ -125,6 +172,13 @@ class FeatureTests(unittest.TestCase):
   self.client.put(self.prefix+'/checklist',json={'revision':self.state()['revision'],'items':items})
   self.post('/approve');self.login('demo-next')
   self.assertFalse(self.features()['schedule_current']);self.assertEqual(self.post('/progress',item_ids=['a'],status='done').status_code,409)
+ def test_draft_current_tracks_checklist_changes(self):
+  self.draft();self.assertTrue(self.features()['draft_current'])
+  self.post('/reopen')
+  items=[{**i,'description':'변경된 업무 절차','reviewed':True} for i in self.items]
+  response=self.client.put(self.prefix+'/checklist',json={'revision':self.state()['revision'],'items':items})
+  self.assertEqual(response.status_code,200,response.text)
+  self.assertFalse(self.features()['draft_current'])
  def test_conversation_isolation_and_action_confirmation(self):
   self.confirm();self.login('demo-next')
   result={'answer':'자료 확인을 완료 처리할까요?','evidence':[],'insufficient':False,'action':{'kind':'progress','item_ids':['a'],'status':'done'}}
@@ -138,6 +192,23 @@ class FeatureTests(unittest.TestCase):
   self.login('demo-next');self.assertEqual(self.post('/qa/action',conversation_id=c['id'],message_id=msg['id']).status_code,200)
   self.assertEqual(self.features()['progress']['a']['status'],'done')
   self.assertEqual(self.post('/qa/action',conversation_id=c['id'],message_id=msg['id']).status_code,409)
+ def test_forward_question_context_and_duplicate_guard(self):
+  self.login('demo-next')
+  result={'answer':'담당자에게 추가 확인이 필요합니다.','evidence':[],'insufficient':True,'action':None}
+  with patch.object(knowledge,'answer_question',AsyncMock(return_value=result)):
+   self.post('/qa/stream',question='마감 예외는 어떻게 처리하나요?')
+  c=self.features()['conversations'][0];msg=c['messages'][0]
+  body=dict(content=msg['question'],conversation_id=c['id'],message_id=msg['id'])
+  self.assertEqual(self.post('/questions',**body).status_code,200)
+  self.assertEqual(self.post('/questions',**body).status_code,200)
+  rows=self.features()['questions'];self.assertEqual(len(rows),1)
+  self.assertEqual(rows[0]['ai_answer'],result['answer'])
+  self.assertEqual(self.post('/questions',content='wrong',conversation_id='missing',message_id=msg['id']).status_code,404)
+  self.login('demo-dev')
+  self.assertEqual(self.features()['questions'][0]['ai_answer'],result['answer'])
+  self.assertEqual(self.post('/questions/'+rows[0]['id']+'/answer',content='정산 담당자에게 확인하세요.').status_code,200)
+  self.login('demo-next')
+  self.assertEqual(self.features()['questions'][0]['answer'],'정산 담당자에게 확인하세요.')
  def test_calendar_events_without_credentials_fail_explicitly(self):
   self.confirm();self.login('demo-next')
   calendar_api.TOKENS.clear()
