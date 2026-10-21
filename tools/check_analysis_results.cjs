@@ -1,0 +1,12 @@
+const {chromium}=require('C:/Users/dawoon/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert=require('node:assert/strict');
+(async()=>{const b=await chromium.launch({channel:'msedge',headless:true});try{const p=await b.newPage({viewport:{width:1440,height:1000}});let uploaded=false;
+const doc={id:'d1',name:'운영매뉴얼.docx',text:'운영 문서 내용',rag:{status:'ready',summary:'매일 주문 처리 현황을 점검합니다.',chunk_count:7,vector_count:7,embedding_model:'text-embedding-3-large'}};
+await p.route('**/api/workspace',r=>r.fulfill({json:{revision:1,documents:uploaded?[doc]:[],items:[],status:'ready',llm_configured:true}}));
+await p.route('**/api/documents/stream',async r=>{uploaded=true;await r.fulfill({contentType:'application/x-ndjson',body:[{stage:'extract',detail:'텍스트 추출 중'},{stage:'summarize',detail:'문서 요약 중'},{stage:'done',detail:'7개 청크 저장 완료'}].map(e=>JSON.stringify(e)).join('\n')+'\n'});});
+await p.goto('http://127.0.0.1:5185');await p.getByRole('button',{name:'업무 문서',exact:true}).click();
+await p.locator('input[type=file]').setInputFiles({name:doc.name,mimeType:'application/octet-stream',buffer:Buffer.from('mock')});
+await p.getByText('7개 벡터 생성',{exact:true}).waitFor();assert.equal(await p.getByRole('button',{name:'분석 결과',exact:true}).getAttribute('aria-pressed'),'true');
+await p.getByRole('button',{name:'분석 진행',exact:true}).click();await p.getByText('7개 청크 저장 완료',{exact:true}).waitFor();
+await p.reload();await p.getByRole('button',{name:'업무 문서',exact:true}).click();await p.getByText('7개 검색 자료 저장 완료',{exact:true}).waitFor();
+await p.screenshot({path:'outputs/document-analysis-results.png',fullPage:true});console.log('PASS completion auto-switch, progress history, persisted results after reload');}finally{await b.close();}})().catch(e=>{console.error(e);process.exit(1)});
