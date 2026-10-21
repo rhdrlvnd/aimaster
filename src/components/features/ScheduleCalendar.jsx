@@ -19,6 +19,7 @@ export default function ScheduleCalendar({
   items,
   progress,
   disabled,
+  readOnly = false,
   lockReason = "",
   onMove,
 }) {
@@ -159,40 +160,53 @@ export default function ScheduleCalendar({
             }
           }}
         >
-          <div className="schedule-date-editor">
-            <label htmlFor="handover-task-date">인수인계 날짜</label>
-            <input
-              id="handover-task-date"
-              type="date"
-              value={selectedRow?.start || ""}
-              min={settings.start}
-              max={settings.end}
-              disabled={!canMoveSelected}
-              onChange={async (event) => {
-                const day = event.target.value;
-                if (!day) return;
-                if (!available(day)) {
-                  setDateError(
-                    "인수인계 기간 안의 업무일을 선택해 주세요. 주말·휴일 설정도 확인해 주세요.",
-                  );
-                  return;
-                }
-                setDateError("");
-                if (await onMove(selected, day, hour(selectedRow?.start_time)))
-                  setMonth(day.slice(0, 7));
-                else
-                  setDateError(
-                    "날짜를 변경하지 못했습니다. 선행·후속 업무의 일정과 화면의 오류 안내를 확인해 주세요.",
-                  );
-              }}
-            />
-            {dateError && <p role="alert">{dateError}</p>}
-            <small>
-              {progress[selected]?.status === "done"
-                ? "완료된 업무의 날짜는 변경할 수 없습니다."
-                : "변경 후 ‘일정 확정’을 눌러 저장하세요."}
-            </small>
-          </div>
+          {readOnly ? (
+            <p>
+              인수 상태:{" "}
+              {
+                { todo: "미시작", doing: "진행 중", done: "완료" }[
+                  progress[selected]?.status || "todo"
+                ]
+              }
+            </p>
+          ) : (
+            <div className="schedule-date-editor">
+              <label htmlFor="handover-task-date">인수인계 날짜</label>
+              <input
+                id="handover-task-date"
+                type="date"
+                value={selectedRow?.start || ""}
+                min={settings.start}
+                max={settings.end}
+                disabled={!canMoveSelected}
+                onChange={async (event) => {
+                  const day = event.target.value;
+                  if (!day) return;
+                  if (!available(day)) {
+                    setDateError(
+                      "인수인계 기간 안의 업무일을 선택해 주세요. 주말·휴일 설정도 확인해 주세요.",
+                    );
+                    return;
+                  }
+                  setDateError("");
+                  if (
+                    await onMove(selected, day, hour(selectedRow?.start_time))
+                  )
+                    setMonth(day.slice(0, 7));
+                  else
+                    setDateError(
+                      "날짜를 변경하지 못했습니다. 선행·후속 업무의 일정과 화면의 오류 안내를 확인해 주세요.",
+                    );
+                }}
+              />
+              {dateError && <p role="alert">{dateError}</p>}
+              <small>
+                {progress[selected]?.status === "done"
+                  ? "완료된 업무의 날짜는 변경할 수 없습니다."
+                  : "변경 후 ‘일정 확정’을 눌러 저장하세요."}
+              </small>
+            </div>
+          )}
         </ScheduleDetailDrawer>
       )}
       <div
@@ -292,7 +306,17 @@ export default function ScheduleCalendar({
                                 (priority === "높음" ? "high" : "")
                               }
                             >
-                              중요도 {priority} {done ? "· 완료" : ""}
+                              중요도 {priority}{" "}
+                              {readOnly
+                                ? "· " +
+                                  {
+                                    todo: "미시작",
+                                    doing: "진행 중",
+                                    done: "완료",
+                                  }[progress[r.item_id]?.status || "todo"]
+                                : done
+                                  ? "· 완료"
+                                  : ""}
                               {r.start !== day ? " · 계속" : ""}
                             </small>
                             <span>

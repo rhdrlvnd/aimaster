@@ -20,6 +20,7 @@ export default function SchedulePanel({
         (row) => !items.some((item) => item.id === row.item_id),
       ));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmedView, setConfirmedView] = useState("calendar");
   async function generateSchedule() {
     const success = await run(
       "/schedule/generate/stream",
@@ -389,112 +390,139 @@ export default function SchedulePanel({
                 자료가 변경되어 일정 재확정이 필요합니다.
               </div>
             )}
-            <div className="feature-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    {!owner && <th>선택</th>}
-                    <th>업무</th>
-                    <th>기간</th>
-                    <th>인수 상태</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {confirmed.map((r) => (
-                    <tr key={r.item_id}>
-                      {!owner && (
-                        <td>
-                          <input
-                            type="checkbox"
-                            aria-label={title(r.item_id) + " 캘린더 선택"}
-                            checked={selected.includes(r.item_id)}
-                            onChange={(e) =>
-                              setSelected(
-                                e.target.checked
-                                  ? [...selected, r.item_id]
-                                  : selected.filter((x) => x !== r.item_id),
-                              )
-                            }
-                          />
-                        </td>
-                      )}
-                      <td>{title(r.item_id)}</td>
-                      <td>
-                        {r.start} {r.start_time?.slice(0, 5)} ~ {r.end}{" "}
-                        {r.end_time?.slice(0, 5)}
-                      </td>
-                      <td>
-                        {owner ? (
-                          { todo: "미시작", doing: "진행 중", done: "완료" }[
-                            data.progress[r.item_id]?.status || "todo"
-                          ]
-                        ) : (
-                          <select
-                            aria-label={title(r.item_id) + " 인수 상태"}
-                            disabled={busy || !data.schedule_current}
-                            value={data.progress[r.item_id]?.status || "todo"}
-                            onChange={(e) =>
-                              run("/progress", {
-                                item_ids: [r.item_id],
-                                status: e.target.value,
-                              })
-                            }
-                          >
-                            <option value="todo">미시작</option>
-                            <option value="doing">진행 중</option>
-                            <option value="done">완료</option>
-                          </select>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="question-channels" aria-label="확정 일정 보기 방식">
+              <button
+                aria-pressed={confirmedView === "calendar"}
+                onClick={() => setConfirmedView("calendar")}
+              >
+                달력
+              </button>
+              <button
+                aria-pressed={confirmedView === "list"}
+                onClick={() => setConfirmedView("list")}
+              >
+                목록 · 인수 진행
+              </button>
             </div>
-            {!owner && (
-              <div className="feature-actions">
-                <button
-                  onClick={() => setSelected(confirmed.map((r) => r.item_id))}
-                >
-                  전체 선택
-                </button>
-                {data.calendar.connected ? (
-                  <>
-                    <button
-                      disabled={
-                        busy || !selected.length || !data.schedule_current
-                      }
-                      onClick={() =>
-                        window.confirm(
-                          "선택한 확정 일정을 Google Calendar에 등록 또는 갱신할까요?",
-                        ) && run("/calendar/events", { item_ids: selected })
-                      }
-                    >
-                      선택 일정 캘린더 등록
-                    </button>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await api("/calendar/connection", "DELETE");
-                          await refresh();
-                        } catch (e) {
-                          setError(e.message);
-                        }
-                      }}
-                    >
-                      Google 연결 해제
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    disabled={!data.calendar.configured}
-                    onClick={connect}
-                  >
-                    Google Calendar 연결
-                  </button>
-                )}
-              </div>
+            {confirmedView === "calendar" && (
+              <ScheduleCalendar
+                rows={confirmed}
+                settings={data.schedule.settings || settings}
+                items={items}
+                progress={data.progress}
+                disabled
+                readOnly
+                lockReason="확정된 일정입니다. 카드를 클릭하면 업무 상세를 확인할 수 있습니다. 인수 상태는 ‘목록 · 인수 진행’에서 변경하세요."
+              />
             )}
+            <div hidden={confirmedView !== "list"}>
+              <div className="feature-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {!owner && <th>선택</th>}
+                      <th>업무</th>
+                      <th>기간</th>
+                      <th>인수 상태</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {confirmed.map((r) => (
+                      <tr key={r.item_id}>
+                        {!owner && (
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={title(r.item_id) + " 캘린더 선택"}
+                              checked={selected.includes(r.item_id)}
+                              onChange={(e) =>
+                                setSelected(
+                                  e.target.checked
+                                    ? [...selected, r.item_id]
+                                    : selected.filter((x) => x !== r.item_id),
+                                )
+                              }
+                            />
+                          </td>
+                        )}
+                        <td>{title(r.item_id)}</td>
+                        <td>
+                          {r.start} {r.start_time?.slice(0, 5)} ~ {r.end}{" "}
+                          {r.end_time?.slice(0, 5)}
+                        </td>
+                        <td>
+                          {owner ? (
+                            { todo: "미시작", doing: "진행 중", done: "완료" }[
+                              data.progress[r.item_id]?.status || "todo"
+                            ]
+                          ) : (
+                            <select
+                              aria-label={title(r.item_id) + " 인수 상태"}
+                              disabled={busy || !data.schedule_current}
+                              value={data.progress[r.item_id]?.status || "todo"}
+                              onChange={(e) =>
+                                run("/progress", {
+                                  item_ids: [r.item_id],
+                                  status: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="todo">미시작</option>
+                              <option value="doing">진행 중</option>
+                              <option value="done">완료</option>
+                            </select>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!owner && (
+                <div className="feature-actions">
+                  <button
+                    onClick={() => setSelected(confirmed.map((r) => r.item_id))}
+                  >
+                    전체 선택
+                  </button>
+                  {data.calendar.connected ? (
+                    <>
+                      <button
+                        disabled={
+                          busy || !selected.length || !data.schedule_current
+                        }
+                        onClick={() =>
+                          window.confirm(
+                            "선택한 확정 일정을 Google Calendar에 등록 또는 갱신할까요?",
+                          ) && run("/calendar/events", { item_ids: selected })
+                        }
+                      >
+                        선택 일정 캘린더 등록
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api("/calendar/connection", "DELETE");
+                            await refresh();
+                          } catch (e) {
+                            setError(e.message);
+                          }
+                        }}
+                      >
+                        Google 연결 해제
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      disabled={!data.calendar.configured}
+                      onClick={connect}
+                    >
+                      Google Calendar 연결
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
         {!owner && !data.calendar.configured && (
