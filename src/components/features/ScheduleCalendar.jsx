@@ -78,7 +78,7 @@ export default function ScheduleCalendar({
   const [dateError, setDateError] = useState("");
   const [hoverDay, setHoverDay] = useState(null);
   const first = month + "-01";
-  const offset = (new Date(first + "T00:00:00Z").getUTCDay() + 6) % 7;
+  const offset = new Date(first + "T00:00:00Z").getUTCDay();
   const last = add(shiftMonth(month, 1) + "-01", -1);
   const count = Math.ceil((offset + Number(last.slice(8))) / 7) * 7;
   const days = Array.from({ length: count }, (_, n) => add(first, n - offset));
@@ -216,10 +216,13 @@ export default function ScheduleCalendar({
         }}
       >
         <div className="month-calendar-grid">
-          {["월", "화", "수", "목", "금", "토", "일"].map((name, n) => (
+          {["일", "월", "화", "수", "목", "금", "토"].map((name, n) => (
             <div
               key={name}
-              className={"month-weekday " + (n >= 5 ? "weekend" : "")}
+              className={
+                "month-weekday " +
+                (n === 0 ? "sunday" : n === 6 ? "weekend" : "")
+              }
             >
               {name}
             </div>
@@ -253,7 +256,17 @@ export default function ScheduleCalendar({
               }}
             >
               <div className="month-date-heading">
-                <span className="month-date">{Number(day.slice(8))}</span>
+                <span
+                  className={
+                    "month-date" +
+                    (new Date(day + "T00:00:00Z").getUTCDay() === 0 ||
+                    (settings.holidays || []).includes(day)
+                      ? " holiday-date"
+                      : "")
+                  }
+                >
+                  {Number(day.slice(8))}
+                </span>
                 {!available(day) && (
                   <small>
                     {day < settings.start || day > settings.end

@@ -2317,6 +2317,7 @@ button:focus-visible { outline: 3px solid #21826c; outline-offset: 3px; }
 .month-calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(125px,1fr)); min-width:875px; }
 .month-weekday { position:sticky; top:0; z-index:2; padding:8px; text-align:center; font-weight:600; background:#eef4f1; border-bottom:1px solid var(--border-panel); }
 .month-weekday.weekend { color:#8a655f; }
+.month-weekday.sunday, .month-day .month-date.holiday-date { color:#c63737; font-weight:600; }
 .month-day { min-height:52px; padding:6px; border-right:1px solid var(--border-divider); border-bottom:1px solid var(--border-divider); background:white; }
 .month-day:nth-child(7n) { border-right:0; }
 .month-day.unavailable { background:#f2f4f6; }
