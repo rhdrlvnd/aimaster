@@ -1,56 +1,63 @@
 # AI Master — 업무 인수인계 Agent
 
+기존 업무 문서로 체크리스트 초안을 만들고 인계자가 검토·확정합니다. 확정 체크리스트의 선행 관계와 중요도를 반영해 일정을 구성하고, 인수자는 달력·진행 현황·문서 근거 채팅을 활용합니다. 인계자 추가 답변, Google Calendar 등록, 성명·동의 기록과 Word 출력도 연결합니다.
+
 ## 로컬 실행
 
-인수인계 생성·문서 분석·체크리스트 검토부터 AI 일정 작성, 인수 진행 관리, 문서 기반 질문, 인계자 답변, 캘린더 연동, 서명·Word 출력까지 연결합니다. [구현 상태와 실행 방법](docs/IMPLEMENTATION.md)을 확인하세요.
+1. Python·Node.js를 준비하고 `python -m pip install -r requirements.txt`, `npm install`을 실행합니다.
+2. `.env.example`을 `.env.local`로 복사하고 사용할 API 설정을 입력합니다. 실제 키는 Git에 넣지 않습니다.
+3. `python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000`으로 API를 실행합니다.
+4. 별도 터미널에서 `npm run dev -- --port 5185 --strictPort`를 실행합니다.
+5. [로컬 화면](http://127.0.0.1:5185)을 열고 테스트 사용자를 선택합니다.
 
-1. `python -m pip install -r requirements.txt`
-2. `python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000`
-3. 별도 터미널에서 `npm install` 후 `npm run dev`
-4. 이 작업 환경에서는 `npm run dev -- --port 5185 --strictPort`로 실행하고 http://127.0.0.1:5185 열기
+기본 생성 모델은 `gpt-6.1-sol`, 임베딩은 `text-embedding-3-large`입니다. 업무 데이터·문서·벡터는 `data/` 아래 저장합니다. PPT 이미지 변환은 PowerPoint가 설치된 Windows에서 지원합니다. 다른 운영체제나 PowerPoint가 없는 환경에서는 해당 변환을 사용할 수 없습니다.
 
-`.env.example`을 `.env.local`로 복사하고 발급받은 키를 입력합니다. `.env.local`의 사내 LLM 설정을 사용합니다. 먼저 직접 만든 예시 문서로 확인하세요. 생성 모델은 `gpt-6.1-sol`, 임베딩은 `text-embedding-3-large`가 기본값입니다. 벡터는 `data/chroma`에 로컬 저장합니다. 기존 문서는 업무 문서 탭의 ‘AI 문서 분석’으로 검색 자료를 생성하세요. 실패한 분석은 문서를 다시 올리지 않고 재시도할 수 있습니다.
+새 인수인계는 생성한 사용자가 인계자가 되며 제목·담당 업무·기간·인수자를 지정합니다. 전체 목록의 기본 정보를 볼 수 있지만 지정된 참여자만 상세 자료에 접근합니다. 작업 공간 진입 시 인수인계 현황을 먼저 보여줍니다. 사용자 선택 방식은 개발용이며 운영 인증을 대체하지 않습니다.
 
-Google Calendar는 `.env.example`의 OAuth 설정 3개를 `.env.local`에 입력한 뒤 서버를 재시작합니다. Google Cloud에서 Calendar API를 활성화하고 웹 OAuth 클라이언트의 승인된 리디렉션 URI를 `GOOGLE_REDIRECT_URI`와 일치시켜야 합니다. 인수자가 화면에서 Google 연결에 동의한 뒤 선택한 일정을 등록합니다. 연결 토큰은 서버 메모리에만 두므로 서버 재시작 후 다시 연결합니다. 실제 Google 등록 검증은 설정 제공 후 진행합니다.
+## 기본 사용 순서
 
-문서 분석·체크리스트 작성·체크리스트 검토·일정 계획·업무 Q&A의 5개 역할을 LangGraph로 실행합니다. `backend/agents.py`, `backend/scheduling.py`, `backend/knowledge.py`, `backend/features.py`와 `src/components/features/`에 역할 및 화면을 분리했습니다. 로그인은 기존 테스트 사용자 전환 방식이며 운영용 계정 인증은 별도 연동이 필요합니다.
+1. 인계자로 업무 문서에서 파일을 등록하고 문서별 분석 결과를 확인합니다. 개별 또는 전체 재분석을 지원합니다.
+2. 체크리스트를 생성하고 내용·근거·선행 업무를 검토해 저장·확정합니다.
+3. 인수인계 기간·주말·휴일을 설정하고 AI 일정 초안을 생성합니다. 월간 달력에서 드래그하거나 날짜를 선택해 조정한 뒤 확정합니다.
+4. 인수자로 확정 일정과 자료를 확인하고 수행 상태를 기록합니다. 질문은 AI 채팅에서 하며 필요한 경우 인계자에게 추가 확인을 요청합니다.
+5. 인계자는 질문 목록에서 답변하고 확정 내용에 성명·동의를 기록해 DOCX로 출력합니다.
 
-## 기획 문서
+체크리스트에는 모든 문서의 저장된 텍스트·표·PPT 전체 정리 내용을 사용하며 PPT 이미지를 다시 보내지 않습니다. 생성 실패 시 기존 결과를 유지합니다. 체크리스트 재생성 성공 시 이전 일정·수행 상태·서명이 초기화됩니다. 일정 재조정은 완료 업무를 유지한 새 초안을 만들고 다시 확정합니다.
 
-2026년 10월 7일 부문 과제 배정에 따라 새로 시작합니다. 기존 과제의 기획·설계·평가·예시 자료는 삭제했습니다.
+## Google Calendar
 
-전달받은 기본 기획의 슬라이드 이미지 13장을 확인했습니다. 원본은 로컬 ppt 폴더에서 관리하며 Git에는 포함하지 않습니다. 자료의 내용과 이번 구현에서 결정할 사항을 구분해 정리했습니다. 구현 범위·기술·평가 목표는 협의 후 확정합니다.
+`.env.example`의 OAuth 설정을 `.env.local`에 입력하고 서버를 재시작합니다. Google Cloud에서 Calendar API를 활성화하고 웹 OAuth 클라이언트의 리디렉션 URI를 `GOOGLE_REDIRECT_URI`와 맞춥니다. 기본 개발 주소는 `http://127.0.0.1:5185/api/calendar/callback`입니다. 테스트 모드에서는 연결 계정을 테스트 사용자에 등록해야 합니다.
 
-- [새 프로젝트 기획서](docs/PROJECT_PLAN.md)
-- [Task 1 — 역량 및 기술 스택 확인](docs/TASK_01_SUBMISSION.md)
-- [Task 2 — 문제 정의 및 서비스 기획](docs/TASK_02_SUBMISSION.md)
-- [Task 3 — 시나리오 수립](docs/TASK_03_SUBMISSION.md)
+OAuth 클라이언트 설정은 서비스 공통이고 인수자는 자신의 Google 계정으로 동의합니다. 일정 화면의 연결 기능을 이용한 뒤 확정 일정 전체 또는 일부를 등록합니다. 같은 항목을 다시 등록하면 이벤트를 갱신합니다. 토큰은 서버 메모리에 있으므로 재시작 후 다시 연결해야 합니다. 실제 계정 등록·갱신 검증 상태와 이전 이벤트 정리 제한은 [구현 기록](docs/IMPLEMENTATION.md)을 확인하세요.
 
-Task 입력 항목과 확인된 개인 개발 경험은 유지합니다. 이전 과제의 기술 선택·기능·제외 범위·KPI는 새 과제에 자동 적용하지 않습니다.
+## 문서
 
-## 프런트엔드 코드 구조
+- [프로젝트 기획](docs/PROJECT_PLAN.md)
+- [Task 1 — 역량·기술 스택](docs/TASK_01_SUBMISSION.md)
+- [Task 2 — 문제 정의·서비스 기획](docs/TASK_02_SUBMISSION.md)
+- [Task 3 — 사용자 시나리오](docs/TASK_03_SUBMISSION.md)
+- [Task 4 — 멀티 에이전트 상세 설계](docs/TASK_04_SUBMISSION.md)
+- [구현 상태·검증·남은 확인 사항](docs/IMPLEMENTATION.md)
+- [KPI 후보·선택 이력](docs/KPI_CANDIDATES.md)
 
-- `src/main.jsx`: React 실행 진입점
-- `src/App.jsx`: 화면 구성과 메뉴 연결
-- `src/components/documents/`: 문서 등록, 분석 진행·결과, 원문 보기
-- `src/components/checklist/`: 체크리스트 화면과 재사용 가능한 업무 항목
-- `src/components/layout/`: 사이드바와 인수인계 현황
-- `src/components/common/`: 문서 분석·초안 생성이 공유하는 진행 단계 표시
-- `src/hooks/useWorkspace.js`: 작업 공간 상태와 업로드·분석·저장·삭제 동작. 메뉴 이동 중에도 작업 상태를 유지합니다.
-- `src/hooks/useElapsedTime.js`: 작업 경과 시간
-- `src/services/api.js`: JSON API와 공통 스트리밍 응답 처리
-- `src/documentProgress.js`: 분석 이벤트 누적 및 저장된 문서의 단계별 결과 변환
+Task 문서는 사전 설계의 문체로 작성합니다. KPI 목표·예상 기준선과 실제 테스트 결과를 구분합니다.
 
-작업 화면 컴포넌트는 props로 데이터와 동작을 받습니다. 인수인계 목록·생성 화면은 목록 API를 호출하고, 선택된 작업 공간의 요청은 해당 인수인계 ID로 구분합니다. 새 화면은 기존 분석·원문 보기·업무 항목 컴포넌트를 가져와 구성할 수 있습니다.
+## 코드 구조와 점검
 
-`npm run format`으로 코드 형식을 정리하고, `npm run format:check`, `npm test`, `npm run build`로 점검합니다. 브라우저 회귀 검증은 `tools/check_refactored_workflow.cjs`, `tools/check_analysis_results.cjs`, `tools/check_progress_by_file.cjs`, `tools/check_bulk_delete.cjs`를 사용합니다. 해당 스크립트는 로컬 5185 포트와 테스트용 API 응답을 사용하며 실제 업무 데이터를 변경하지 않습니다.
+- `backend/app.py`: API·권한·문서·체크리스트 처리
+- `backend/checklist_generation.py`, `backend/dependencies.py`: 생성·검토 및 선행 관계 검증
+- `backend/agents.py`: 역할별 AI 실행 지원
+- `backend/rag.py`, `backend/knowledge.py`: 문서 분석·검색·답변
+- `backend/scheduling.py`, `backend/features.py`, `backend/calendar_api.py`: 일정·진행·질문·출력·외부 연동
+- `src/App.jsx`, `src/hooks/useWorkspace.js`: 메뉴·작업 공간 상태·진행 유지
+- `src/components/documents/`, `checklist/`, `features/`, `common/`: 화면과 재사용 컴포넌트
 
-## 인수인계별 관리
+문서 분석·체크리스트 작성·내용 검토·선행 업무 검토·일정 계획·업무 Q&A의 6개 역할을 LangGraph와 서버 처리 흐름으로 연결합니다.
 
-첫 화면에서 인수인계 제목, 담당 업무, 전임자, 후임자, 시작일·종료일을 입력해 생성합니다. 목록에서 기본 정보를 수정하거나 해당 인수인계를 열 수 있습니다. 문서·체크리스트·근거는 인수인계별로 분리되며, 기존 자료는 기존 업무 인수인계로 한 번만 이전됩니다. 이전 전 SQLite 백업과 원래 workspace 행을 보존합니다.
+프런트엔드는 `npm run format:check`, `npm test`, `npm run build`로 점검합니다. 생성·관계 관련 테스트는 `python -m unittest backend.test_checklist_generation backend.test_dependencies backend.test_workflow backend.test_ai_transport`로 실행합니다. `tools/check_*` 중에는 과거 화면이나 로컬 데이터에 의존하는 도구가 있으므로 새 설치에서 전부 그대로 실행하지 말고 각 도구의 대상·포트·데이터 조건을 확인하세요.
 
-새 흐름 검증: python -m unittest tools.test_handovers backend.test_workflow backend.test_slides backend.test_rag -v 및 node tools/check_handovers.cjs. 기존 tools/check_* 스크립트 중 단일 작업 공간을 가정한 스크립트는 이전 UI 전용입니다.
+## Git 제외 자료와 다른 PC로 전달
 
-## Git에 포함하지 않는 자료
+`.env.local`, `data/`, `outputs/`, `ppt/`, 로그·임시 산출물은 Git에 포함하지 않습니다. `.env.example`에는 실제 비밀값을 넣지 않습니다.
 
-API 키와 OAuth 비밀값은 `.env.local`에만 보관합니다. 업로드 문서·DB·벡터 저장소(`data/`), 생성 산출물(`outputs/`), 전달받은 기획 원본(`ppt/`), 로그·임시 파일은 `.gitignore`로 제외합니다. 실행 설정 예시인 `.env.example`에는 실제 키를 넣지 않습니다.
+새 데이터로 시작하려면 저장소와 실행 환경·별도 API 설정이 필요합니다. 기존 작업 상태까지 전달하려면 서버를 종료해 쓰기를 멈춘 뒤 `data/` 전체를 복사합니다. DB만 보내면 문서·벡터·이미지 자료가 빠질 수 있습니다. 설정 파일은 필요한 상대에게 별도 안전한 경로로 전달하며 Google 개인 연결은 새 서버에서 다시 진행합니다. `node_modules`와 Python 가상환경은 대상 PC에서 설치합니다.

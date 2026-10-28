@@ -49,14 +49,19 @@ export default function HandoverHome({ onOpen }) {
   useEffect(() => {
     async function init() {
       try {
-        const data = await api('/demo/users');
+        const data = await api("/demo/users");
         setUsers(data.users);
         try {
-          const session = await api('/session');
+          const session = await api("/session");
           setUser(session.user);
           await load();
-        } catch { setLoading(false); }
-      } catch (e) { setError(e.message); setLoading(false); }
+        } catch {
+          setLoading(false);
+        }
+      } catch (e) {
+        setError(e.message);
+        setLoading(false);
+      }
     }
     init();
   }, []);
@@ -65,11 +70,14 @@ export default function HandoverHome({ onOpen }) {
     setSwitching(true);
     setList([]);
     try {
-      const data = await api('/demo/session', 'POST', {user_id:id});
+      const data = await api("/demo/session", "POST", { user_id: id });
       setUser(data.user);
       await load();
-    } catch (e) { setError(e.message); }
-    finally { setSwitching(false); }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSwitching(false);
+    }
   }
   function start(item) {
     setError("");
@@ -77,7 +85,7 @@ export default function HandoverHome({ onOpen }) {
     setForm(
       item
         ? Object.fromEntries(Object.keys(blank).map((k) => [k, item[k] || ""]))
-        : { ...blank, owner:user.name },
+        : { ...blank, owner: user.name },
     );
   }
   function close() {
@@ -120,13 +128,27 @@ export default function HandoverHome({ onOpen }) {
         업무 인수인계
       </div>
       <div className="demo-user-bar">
-        <label>테스트 사용자
-          <select aria-label="테스트 사용자" value={user?.id || ''} disabled={switching} onChange={e => switchUser(e.target.value)}>
-            <option value="" disabled>사용자를 선택하세요</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name} · {u.department}</option>)}
+        <label>
+          테스트 사용자
+          <select
+            aria-label="테스트 사용자"
+            value={user?.id || ""}
+            disabled={switching}
+            onChange={(e) => switchUser(e.target.value)}
+          >
+            <option value="" disabled>
+              사용자를 선택하세요
+            </option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} · {u.department}
+              </option>
+            ))}
           </select>
         </label>
-        <span>전체 목록은 공개되며, 내용은 인계자·인수자만 열 수 있습니다.</span>
+        <span>
+          전체 목록은 공개되며, 내용은 인계자·인수자만 열 수 있습니다.
+        </span>
       </div>
       <header className="handover-home-heading">
         <div>
@@ -135,7 +157,11 @@ export default function HandoverHome({ onOpen }) {
             담당 업무별로 인수인계를 시작하고, 문서와 체크리스트를 관리하세요.
           </p>
         </div>
-        <button className="primary" disabled={!user || switching} onClick={() => start()}>
+        <button
+          className="primary"
+          disabled={!user || switching}
+          onClick={() => start()}
+        >
           <Plus size={18} />
           인수인계 시작
         </button>
@@ -146,7 +172,14 @@ export default function HandoverHome({ onOpen }) {
           <button onClick={load}>다시 불러오기</button>
         </div>
       )}
-      {!user ? (<section className="empty"><h2>테스트 사용자를 선택해 주세요</h2><p>사용자를 바꾸면 참여 여부에 따라 접근 가능한 인수인계가 달라집니다.</p></section>) : loading ? (
+      {!user ? (
+        <section className="empty">
+          <h2>테스트 사용자를 선택해 주세요</h2>
+          <p>
+            사용자를 바꾸면 참여 여부에 따라 접근 가능한 인수인계가 달라집니다.
+          </p>
+        </section>
+      ) : loading ? (
         <div className="empty">
           <LoaderCircle className="spin" />
           목록을 불러오는 중입니다.
@@ -159,7 +192,11 @@ export default function HandoverHome({ onOpen }) {
             담당 업무와 전임자·후임자, 기간을 입력한 뒤 업무 문서를 등록할 수
             있어요.
           </p>
-          <button className="primary" disabled={!user || switching} onClick={() => start()}>
+          <button
+            className="primary"
+            disabled={!user || switching}
+            onClick={() => start()}
+          >
             인수인계 시작
           </button>
         </section>
@@ -171,19 +208,23 @@ export default function HandoverHome({ onOpen }) {
                 <span className="status">
                   {statuses[item.status] || item.status}
                 </span>
-                {item.can_manage && <button
-                  className="text-button"
-                  onClick={() => start(item)}
-                  aria-label={item.name + " 기본 정보 수정"}
-                >
-                  <Pencil size={14} />
-                  기본 정보 수정
-                </button>}
+                {item.can_manage && (
+                  <button
+                    className="text-button"
+                    onClick={() => start(item)}
+                    aria-label={item.name + " 기본 정보 수정"}
+                  >
+                    <Pencil size={14} />
+                    기본 정보 수정
+                  </button>
+                )}
               </div>
               <h2>{item.name}</h2>
               <p>
-                {!item.can_access ? "참여자만 상세 내용을 확인할 수 있습니다." : item.scope ||
-                  "기존 자료를 보존한 인수인계입니다. 기본 정보를 입력해 주세요."}
+                {!item.can_access
+                  ? "참여자만 상세 내용을 확인할 수 있습니다."
+                  : item.scope ||
+                    "기존 자료를 보존한 인수인계입니다. 기본 정보를 입력해 주세요."}
               </p>
               <dl>
                 <div>
@@ -201,14 +242,26 @@ export default function HandoverHome({ onOpen }) {
               </dl>
               <div className="handover-entry-bottom">
                 <span>
-                  {item.can_access ? `문서 ${item.document_count}개 · 체크리스트 ${item.item_count}개` : "접근 제한"}
+                  {item.can_access
+                    ? `문서 ${item.document_count}개 · 체크리스트 ${item.item_count}개`
+                    : "접근 제한"}
                 </span>
                 <button
                   disabled={!item.can_access}
                   onClick={() => onOpen(item.id, user)}
                   aria-label={item.name + " 열기"}
                 >
-                  {item.can_access ? <>열기<ArrowRight size={16} /></> : <>참여자 전용<LockKeyhole size={16} /></>}
+                  {item.can_access ? (
+                    <>
+                      열기
+                      <ArrowRight size={16} />
+                    </>
+                  ) : (
+                    <>
+                      참여자 전용
+                      <LockKeyhole size={16} />
+                    </>
+                  )}
                 </button>
               </div>
             </article>
@@ -275,9 +328,20 @@ export default function HandoverHome({ onOpen }) {
                 ].map(([key, title]) => (
                   <label key={key}>
                     {title}
-                    <select required value={form[key]} disabled={saving || key === "owner"} onChange={e => setForm({...form, [key]:e.target.value})}>
+                    <select
+                      required
+                      value={form[key]}
+                      disabled={saving || key === "owner"}
+                      onChange={(e) =>
+                        setForm({ ...form, [key]: e.target.value })
+                      }
+                    >
                       <option value="">사용자 선택</option>
-                      {users.map(u => <option key={u.id} value={u.name}>{u.name} · {u.department}</option>)}
+                      {users.map((u) => (
+                        <option key={u.id} value={u.name}>
+                          {u.name} · {u.department}
+                        </option>
+                      ))}
                     </select>
                   </label>
                 ))}

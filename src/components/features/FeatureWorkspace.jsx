@@ -14,6 +14,7 @@ export default function FeatureWorkspace({
   onBusy,
   onRefresh,
   externalBusy = false,
+  onOpenChecklist,
 }) {
   const prefix = "/handovers/" + handoverId;
   const [data, setData] = useState(null),
@@ -112,7 +113,7 @@ export default function FeatureWorkspace({
       )}
       {tab === "overview" && (
         <>
-          <HandoverDashboard {...props} />
+          <HandoverDashboard {...props} onOpenChecklist={onOpenChecklist} />
           {owner && <ExportPanel {...props} />}
         </>
       )}

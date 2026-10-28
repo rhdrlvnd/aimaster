@@ -19,6 +19,8 @@ export default function ChecklistItem({
   const editable = editing && !locked;
   return (
     <article
+      id={`checklist-${item.id}`}
+      tabIndex={-1}
       className={"item checklist-card " + (item.reviewed ? "reviewed" : "")}
     >
       <div className="item-number">{String(number).padStart(2, "0")}</div>
@@ -175,7 +177,10 @@ export default function ChecklistItem({
           <div className="evidence-links">
             {item.evidence.length ? (
               item.evidence.map((e, j) => (
-                <button key={j} onClick={() => setSelected(e)}>
+                <button
+                  key={j}
+                  onClick={() => setSelected({ ...e, itemTitle: item.title })}
+                >
                   <FileText size={14} />
                   {e.kind === "visual"
                     ? `슬라이드 ${e.slide} · 이미지 근거`

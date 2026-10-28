@@ -38,3 +38,34 @@ class DependencyTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(dependencies,'json_call',AsyncMock(return_value={'relations':[]})):
             result=await dependencies.suggest(self.items())
         self.assertTrue(all(not i['dependencies'] for i in result))
+
+    async def test_reference_copies_source_without_model_requoting(self):
+        edge={'item_id':'b','prerequisite_id':'a','reason':'접근 권한이 필요하다.','evidence_ref':'e1-1'}
+        with patch.object(dependencies,'json_call',AsyncMock(return_value={'relations':[edge]})) as call:
+            result=await dependencies.suggest(self.items())
+        self.assertEqual(result[1]['dependencies'],['a'])
+        self.assertEqual(result[1]['dependency_notes']['a']['quote'],self.items()[0]['evidence'][0]['quote'])
+        self.assertEqual(call.call_args.args[2]['items'][0]['evidence'][0]['evidence_ref'],'e1-1')
+
+    async def test_unrelated_or_unknown_reference_is_rejected(self):
+        items=self.items()+[{'id':'c','title':'별도 업무','description':'별도','evidence':[{'quote':'별도 원문'}]}]
+        for ref in ('e3-1','missing'):
+            with self.subTest(ref=ref):
+                edge={'item_id':'b','prerequisite_id':'a','reason':'조건 확인','evidence_ref':ref}
+                with patch.object(dependencies,'json_call',AsyncMock(return_value={'relations':[edge]})):
+                    with self.assertRaises(HTTPException):
+                        await dependencies.suggest(items)
+
+    async def test_legacy_whitespace_is_normalized_but_source_preserved(self):
+        edge={'item_id':'b','prerequisite_id':'a','reason':'조건 확인','quote':'접근 권한 확보 후\n테스트를 진행한다.'}
+        with patch.object(dependencies,'json_call',AsyncMock(return_value={'relations':[edge]})):
+            result=await dependencies.suggest(self.items())
+        self.assertEqual(result[1]['dependency_notes']['a']['quote'],self.items()[0]['evidence'][0]['quote'])
+
+    async def test_reference_retry_repairs_invalid_quote(self):
+        edge={'item_id':'b','prerequisite_id':'a','reason':'조건 확인'}
+        replies=[{'relations':[{**edge,'quote':'만들어 낸 근거'}]}, {'relations':[{**edge,'evidence_ref':'e1-1'}]}]
+        with patch.object(dependencies,'json_call',AsyncMock(side_effect=replies)) as call:
+            result=await dependencies.suggest(self.items())
+        self.assertEqual(call.await_count,2)
+        self.assertEqual(result[1]['dependencies'],['a'])

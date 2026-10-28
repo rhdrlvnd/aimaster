@@ -12,7 +12,7 @@ export default function useWorkspace(handoverId) {
     stream(body, onProgress, "/api" + prefix + path.replace(/^\/api/, ""));
   const [state, setState] = useState(null),
     [items, setItems] = useState([]),
-    [tab, setTab] = useState("documents");
+    [tab, setTab] = useState("overview");
   const [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");

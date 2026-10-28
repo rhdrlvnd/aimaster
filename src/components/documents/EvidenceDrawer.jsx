@@ -14,11 +14,11 @@ export default function EvidenceDrawer({
         className="drawer"
         role="dialog"
         aria-modal="true"
-        aria-label="원문 근거"
+        aria-label={selected.quote ? "연결된 근거" : "업무 문서"}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="drawer-title">
-          <h2>원문 근거</h2>
+          <h2>{selected.quote ? "연결된 근거" : "업무 문서"}</h2>
           <button
             className="icon-button"
             aria-label="원문 닫기"
@@ -27,6 +27,12 @@ export default function EvidenceDrawer({
             <X />
           </button>
         </div>
+        {selected.itemTitle && (
+          <div className="evidence-item-context">
+            <span className="eyebrow">선택한 체크리스트</span>
+            <p>{selected.itemTitle}</p>
+          </div>
+        )}
         <p className="source-name">
           <FileText size={17} />
           {document?.name || "문서를 찾을 수 없음"}
@@ -54,20 +60,25 @@ export default function EvidenceDrawer({
           </button>
         )}
         {selected.quote && (
-          <>
+          <section className="evidence-excerpt">
+            <h3>
+              {selected.itemTitle
+                ? "이 항목에 연결된 인용문"
+                : "답변에 연결된 인용문"}
+            </h3>
+            <p className="evidence-help">
+              {selected.itemTitle
+                ? "체크리스트의 내용과 아래 인용문을 비교해 확인하세요. 전체 맥락은 원본 파일을 다운로드해 확인할 수 있습니다."
+                : "답변에서 근거로 연결한 부분입니다. 아래 인용 내용을 확인하세요."}
+            </p>
             <span className="eyebrow">
               {selected.kind === "visual"
                 ? "AI가 이미지에서 해석한 근거 · 직접 확인 필요"
-                : "인용한 내용"}
+                : "문서에서 인용한 내용"}
             </span>
             <blockquote>{selected.quote}</blockquote>
-          </>
+          </section>
         )}
-        {(document?.warnings || []).map((w, i) => (
-          <p className="inline-warning" key={i}>
-            {w}
-          </p>
-        ))}
         {document?.slide_count > 0 && (
           <section className="slide-preview">
             <label>
@@ -105,8 +116,34 @@ export default function EvidenceDrawer({
             />
           </section>
         )}
-        <span className="eyebrow">추출한 문서 내용</span>
-        <pre>{document?.text}</pre>
+        {document && !selected.quote && (
+          <details
+            className="evidence-document-context"
+            key={`${selected.document_id}-${selected.quote || "document"}-${selected.itemTitle || ""}`}
+            open
+          >
+            <summary>문서 전체 내용 보기</summary>
+            <p className="evidence-help">
+              파일에서 추출한 텍스트와 표입니다. 원래 파일의 배치는 원본
+              다운로드로 확인하세요.
+            </p>
+            {document.text ? (
+              <pre>{document.text}</pre>
+            ) : (
+              <p>추출된 본문이 없습니다.</p>
+            )}
+            {document.warnings?.length > 0 && (
+              <div className="evidence-extraction-notes">
+                <h3>문서 추출 범위 안내</h3>
+                {[...new Set(document.warnings)].map((warning) => (
+                  <p className="evidence-help" key={warning}>
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            )}
+          </details>
+        )}
         <button onClick={() => setSelected(null)}>닫기</button>
       </aside>
     </div>

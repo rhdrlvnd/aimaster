@@ -3,21 +3,19 @@ import { ArrowUpRight, Check, CircleHelp } from "lucide-react";
 export default function DocumentResult({ doc, onOpen }) {
   const rag = doc.rag || {},
     ready = rag.status === "ready";
-  const notices = [...new Set(
-    [...(doc.warnings || []), ...(rag.limitations || [])]
-      .map((message) => message.trim())
-      .filter(Boolean),
-  )];
+  const notices = [
+    ...new Set(
+      [...(doc.warnings || []), ...(rag.limitations || [])]
+        .map((message) => message.trim())
+        .filter(Boolean),
+    ),
+  ];
   const rows = [
     ["텍스트·표 추출", `${doc.text.length.toLocaleString()}자 추출`, true],
     ...(doc.slide_count
       ? [["슬라이드 이미지 변환", `${doc.slide_count}장 변환`, true]]
       : []),
-    [
-      "전체 내용 정리",
-      ready ? "내용 정리 완료" : "재분석 필요",
-      ready,
-    ],
+    ["전체 내용 정리", ready ? "내용 정리 완료" : "재분석 필요", ready],
     [
       "문서 청킹",
       ready ? `${rag.chunk_count}개 청크 생성` : "완료된 결과 없음",
@@ -60,7 +58,15 @@ export default function DocumentResult({ doc, onOpen }) {
       {rag.organized_text && (
         <details className="result-summary">
           <summary>정리된 전체 내용 보기</summary>
-          <p style={{whiteSpace:'pre-wrap',maxHeight:420,overflowY:'auto'}}>{rag.organized_text}</p>
+          <p
+            style={{
+              whiteSpace: "pre-wrap",
+              maxHeight: 420,
+              overflowY: "auto",
+            }}
+          >
+            {rag.organized_text}
+          </p>
         </details>
       )}
       {notices.length > 0 && (

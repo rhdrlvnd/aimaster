@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from datetime import date, timedelta
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 
 TOKENS={}
 PENDING={}
@@ -69,16 +69,25 @@ def install(m):
         client,secret,redirect=config()
         if not client or not secret: raise HTTPException(503,'Google OAuth 클라이언트 ID와 Secret 설정이 필요합니다.')
         verifier=secrets.token_urlsafe(48); nonce=secrets.token_urlsafe(32)
-        PENDING[nonce]={'user':user['id'],'session':request.cookies.get('handover_session'),'created':time.time(),'verifier':verifier}
+        binding=secrets.token_urlsafe(32)
+        PENDING[nonce]={'user':user['id'],'session':request.cookies.get('handover_session'),'created':time.time(),'verifier':verifier,'binding':binding}
         challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
-        return {'url':'https://accounts.google.com/o/oauth2/v2/auth?'+urlencode({'client_id':client,'redirect_uri':redirect,'response_type':'code',
-            'scope':'https://www.googleapis.com/auth/calendar.events','access_type':'offline','prompt':'consent','state':nonce,'code_challenge':challenge,'code_challenge_method':'S256'})}
+        response=JSONResponse({'url':'https://accounts.google.com/o/oauth2/v2/auth?'+urlencode({'client_id':client,'redirect_uri':redirect,'response_type':'code',
+            'scope':'https://www.googleapis.com/auth/calendar.events','access_type':'offline','prompt':'consent','state':nonce,'code_challenge':challenge,'code_challenge_method':'S256'})})
+        # Only this short-lived OAuth binding crosses the Google redirect.
+        # The application's authentication cookie remains SameSite=Strict.
+        response.set_cookie('handover_oauth',binding,max_age=600,httponly=True,samesite='lax',secure=redirect.startswith('https://'),path='/api/calendar/callback')
+        return response
     @router.get('/api/calendar/callback')
     async def callback(request:Request,state:str='',code:str='',error:str=''):
         pending=PENDING.pop(state,None)
-        if not pending or time.time()-pending['created']>600 or pending['session']!=request.cookies.get('handover_session') or m.SESSIONS.get(pending['session'])!=pending['user']:
+        if not pending or time.time()-pending['created']>600 or not secrets.compare_digest(pending.get('binding',''),request.cookies.get('handover_oauth','')) or not pending.get('binding') or m.SESSIONS.get(pending['session'])!=pending['user'] or (request.cookies.get('handover_session') and request.cookies['handover_session']!=pending['session']):
             raise HTTPException(400,'Google 연결 요청이 만료되었거나 사용자가 일치하지 않습니다.')
-        if error or not code: return RedirectResponse('/?calendar=cancelled')
+        def completed(url):
+            response=RedirectResponse(url)
+            response.delete_cookie('handover_oauth',path='/api/calendar/callback')
+            return response
+        if error or not code: return completed('/?calendar=cancelled')
         client,secret,redirect=config()
         try:
             async with httpx.AsyncClient(timeout=30) as http:
@@ -92,7 +101,7 @@ def install(m):
         except (ValueError, AttributeError):
             raise HTTPException(502,'Google 인증 응답을 확인하지 못했습니다. 다시 연결해 주세요.')
         TOKENS[pending['user']]={'access_token':value['access_token'],'refresh_token':value.get('refresh_token',''),'expires_at':time.time()+value.get('expires_in',3600)}
-        return RedirectResponse('/?calendar=connected')
+        return completed('/?calendar=connected')
     @router.delete('/api/calendar/connection')
     async def disconnect(user=Depends(m.current_user)):
         old=TOKENS.pop(user['id'],None)

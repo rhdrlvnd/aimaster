@@ -1,5 +1,5 @@
 import React from "react";
-export default function HandoverDashboard({ state, data }) {
+export default function HandoverDashboard({ state, data, onOpenChecklist }) {
   const ids = new Set(state.items.map((i) => i.id));
   const done = Object.entries(data.progress).filter(
     ([id, v]) => ids.has(id) && v.status === "done",
@@ -72,13 +72,41 @@ export default function HandoverDashboard({ state, data }) {
           (i) => data.progress[i.id]?.status === "done",
         ).length;
         return (
-          <div className="category-progress" key={c}>
-            <span>{c}</span>
-            <progress value={n} max={rows.length} />
-            <span>
-              {n}/{rows.length}
-            </span>
-          </div>
+          <details className="category-checklists" key={c}>
+            <summary>
+              <span>{c || "미분류"}</span>
+              <progress
+                aria-label={`${c} 인수 진행`}
+                value={n}
+                max={rows.length}
+              />
+              <strong>
+                {n}/{rows.length}
+              </strong>
+              <span className="category-expand" aria-hidden="true">
+                ⌄
+              </span>
+            </summary>
+            <ul>
+              {rows.map((item) => (
+                <li key={item.id}>
+                  <button onClick={() => onOpenChecklist(item.id)}>
+                    <span className="category-item-title">{item.title}</span>
+                    <span className="category-item-status">
+                      {
+                        { todo: "미시작", doing: "진행 중", done: "완료" }[
+                          data.progress[item.id]?.status || "todo"
+                        ]
+                      }
+                    </span>
+                    <span className="category-item-link">
+                      체크리스트 보기 →
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
         );
       })}
       <h3>답변 대기 질문</h3>

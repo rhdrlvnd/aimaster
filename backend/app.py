@@ -438,7 +438,8 @@ async def generate_section(documents, report=None, targets=None, outline=None, f
     messages=[{'role':'system','content':SYSTEM+'\n모든 문서의 원문 및 축약 없이 정리한 장표 청크를 함께 비교하라. 원본 이미지는 재전송하지 않는다. visual 청크는 등록 시 이미지에서 읽은 내용이며 원본을 직접 보았다고 주장하지 마라. 판독 제한을 보충하지 마라. 청크만 근거로 사용하고 evidence마다 chunk_id를 넣어라.'},{'role':'user','content':content}]
     if targets:
         instruction='전체 문서는 모두 참고하되 이번 응답은 지정 업무 제목 각각에 대해 정확히 한 항목씩 작성한다. 제목은 지정된 값을 그대로 쓴다. 다른 묶음의 업무는 추가하지 않는다. 업무 간 관계와 예외 조건은 전체 원문을 비교하여 반영한다. 각 description은 인수할 내용·핵심 확인·완료 확인 세 줄로 500자 이하, category는 40자 이하로 작성한다. 근거는 필요한 핵심 근거만 선택한다. 원문을 설명에 길게 반복하지 말고 수행할 일과 핵심 조건을 명확히 쓴다. '
-        scope=json.dumps({'전체업무목록':outline,'이번작성대상':targets,'이전검토지적':feedback},ensure_ascii=False)
+        instruction+='각 item에 이번작성대상의 target_id를 반드시 넣는다. target_id별로 정확히 한 항목을 작성하고, 합치거나 나누지 마라. 설명과 근거도 해당 ID의 업무에 맞춰 작성한다. title은 서버에서 지정 제목을 적용한다. '
+        scope=json.dumps({'전체업무목록':outline,'이번작성대상':[{'target_id':f'target-{n+1}','title':title} for n,title in enumerate(targets)],'이전검토지적':feedback},ensure_ascii=False)
         messages.append({'role':'user','content':instruction+scope})
         content=content+[{'type':'text','text':'이번 초안은 전체 결과의 일부다. 누락 여부는 이번작성대상에 대해서만 검사한다. 다른 묶음 업무의 누락을 지적하지 마라. '+scope}]
     base_messages=list(messages)
@@ -464,13 +465,20 @@ async def generate_section(documents, report=None, targets=None, outline=None, f
                     from backend.checklist_generation import OutputLimitError
                     raise OutputLimitError()
                 if choice.get('finish_reason')!='stop':raise ValueError('응답 종료 사유: '+str(choice.get('finish_reason'))+' (완료되지 않은 응답)')
-                value=AIResult.model_validate_json(choice['message']['content'])
-                if targets and (len(value.items)!=len(targets) or {i.title for i in value.items}!=set(targets)):
-                    raise ValueError('지정된 업무 제목마다 정확히 한 항목을 작성해야 합니다: '+json.dumps(targets,ensure_ascii=False))
+                raw=json.loads(choice['message']['content'])
+                if targets:
+                    from backend.checklist_generation import assign_targets
+                    raw=assign_targets(raw,targets)
+                value=AIResult.model_validate(raw)
                 validate_readability(value.items);validate_output_language(value.items);validate_evidence(value.items,documents,True);validate_retrieved(value.items,chunks)
                 if len({normalize(i.title).casefold() for i in value.items})!=len(value.items):raise ValueError('동일 제목 업무가 중복되었습니다.')
                 return {'context':value,'error':''}
-            except (KeyError,IndexError,TypeError,ValueError,ValidationError) as error:return {'error':str(error)[:6000]}
+            except (KeyError,IndexError,TypeError,ValueError,ValidationError) as error:
+                from backend.checklist_generation import TargetAssignmentError
+                logging.getLogger('uvicorn.error.handover').warning('checklist structural validation attempt=%s type=%s',flow['attempts'],type(error).__name__)
+                if isinstance(error,TargetAssignmentError) and flow['attempts']>=3:
+                    raise
+                return {'error':str(error)[:6000]}
         async def review(flow):
             report('validate',f'{model} · 체크리스트 검토 Agent가 전체 원문과 초안의 누락·중복·근거를 대조합니다.')
             try:

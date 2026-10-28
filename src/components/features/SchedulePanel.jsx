@@ -128,6 +128,52 @@ export default function SchedulePanel({
   }
   return (
     <>
+      {!owner && (
+        <div className="feature-card calendar-connection-bar">
+          <div>
+            <strong>Google Calendar</strong>
+            <span
+              className={
+                data.calendar.connected
+                  ? "calendar-connected"
+                  : "calendar-disconnected"
+              }
+            >
+              {data.calendar.connected ? "연결됨" : "연결 안 됨"}
+            </span>
+            <p>
+              {!data.calendar.configured
+                ? "서비스의 Google 연결 설정이 필요합니다."
+                : data.calendar.connected
+                  ? "‘목록 · 인수 진행’에서 등록할 일정을 선택하세요."
+                  : "내 Google 캘린더에 확정된 인수인계 일정을 등록하세요."}
+            </p>
+          </div>
+          {data.calendar.connected ? (
+            <button
+              disabled={busy}
+              onClick={async () => {
+                try {
+                  await api("/calendar/connection", "DELETE");
+                  await refresh();
+                } catch (e) {
+                  setError(e.message);
+                }
+              }}
+            >
+              연결 해제
+            </button>
+          ) : (
+            <button
+              className="primary"
+              disabled={busy || !data.calendar.configured}
+              onClick={connect}
+            >
+              Google Calendar 연결
+            </button>
+          )}
+        </div>
+      )}
       {owner && staleDraft && (
         <div className="inline-warning" role="status">
           체크리스트가 변경되어 이전 일정 초안을 표시하지 않습니다. 기간과
@@ -499,36 +545,12 @@ export default function SchedulePanel({
                       >
                         선택 일정 캘린더 등록
                       </button>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await api("/calendar/connection", "DELETE");
-                            await refresh();
-                          } catch (e) {
-                            setError(e.message);
-                          }
-                        }}
-                      >
-                        Google 연결 해제
-                      </button>
                     </>
-                  ) : (
-                    <button
-                      disabled={!data.calendar.configured}
-                      onClick={connect}
-                    >
-                      Google Calendar 연결
-                    </button>
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>
           </>
-        )}
-        {!owner && !data.calendar.configured && (
-          <p className="subtext">
-            Google OAuth 설정을 등록하면 캘린더를 연결할 수 있습니다.
-          </p>
         )}
         {data.calendar_results.map((r, i) => (
           <p key={i}>

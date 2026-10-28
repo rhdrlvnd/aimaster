@@ -24,3 +24,19 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         client=AsyncMock();client.post.return_value=MagicMock(status_code=401)
         await post(client,'https://example.invalid',label='초안')
         self.assertEqual(client.post.await_count,1)
+
+    async def test_rate_limit_honors_retry_after_and_keeps_payload(self):
+        client=AsyncMock();client.post.side_effect=[MagicMock(status_code=429,headers={'Retry-After':'45'}),MagicMock(status_code=200)]
+        with patch('backend.ai_transport.asyncio.sleep',new_callable=AsyncMock) as sleep:
+            response=await post(client,'https://example.invalid',label='초안',json={'model':'test'})
+        sleep.assert_awaited_once_with(45)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(client.post.call_args_list[0],client.post.call_args_list[1])
+
+    async def test_rate_limit_fallback_and_retry_bound(self):
+        client=AsyncMock();client.post.return_value=MagicMock(status_code=429,headers={})
+        with patch('backend.ai_transport.asyncio.sleep',new_callable=AsyncMock) as sleep:
+            response=await post(client,'https://example.invalid',label='초안')
+        sleep.assert_awaited_once_with(60)
+        self.assertEqual(client.post.await_count,2)
+        self.assertEqual(response.status_code,429)

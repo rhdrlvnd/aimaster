@@ -7,7 +7,7 @@ import DocumentPanel from "./components/documents/DocumentPanel";
 import DocumentAnalysis from "./components/documents/DocumentAnalysis";
 import EvidenceDrawer from "./components/documents/EvidenceDrawer";
 import ChecklistPanel from "./components/checklist/ChecklistPanel";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import FeatureWorkspace from "./components/features/FeatureWorkspace";
 import RecipientView from "./components/handovers/RecipientView";
 import HandoverHome from "./components/handovers/HandoverHome";
@@ -49,6 +49,7 @@ export default function App() {
 }
 function Workspace({ handoverId, currentUser, onExit }) {
   const [featureBusy, setFeatureBusy] = useState(false);
+  const [checklistTarget, setChecklistTarget] = useState(null);
   const {
     deleteAllDocuments,
     state,
@@ -99,6 +100,17 @@ function Workspace({ handoverId, currentUser, onExit }) {
     deleteDocument,
     deleteItem,
   } = useWorkspace(handoverId);
+  useEffect(() => {
+    if (tab !== "checklist" || !checklistTarget) return;
+    const card = document.getElementById(`checklist-${checklistTarget}`);
+    if (!card) return;
+    card.scrollIntoView({ block: "center" });
+    card.focus({ preventScroll: true });
+    card.classList.add("checklist-linked-focus");
+    setChecklistTarget(null);
+    const clear = () => card.classList.remove("checklist-linked-focus");
+    card.addEventListener("blur", clear, { once: true });
+  }, [tab, checklistTarget]);
   function backToList() {
     if (busy || featureBusy) return;
     if (
@@ -236,6 +248,11 @@ function Workspace({ handoverId, currentUser, onExit }) {
                   onBusy={setFeatureBusy}
                   onRefresh={refresh}
                   externalBusy={generating}
+                  onOpenChecklist={(id) => {
+                    setFilter("전체");
+                    setChecklistTarget(id);
+                    setTab("checklist");
+                  }}
                 />
               ) : state.permissions?.can_manage === false ? (
                 <RecipientView

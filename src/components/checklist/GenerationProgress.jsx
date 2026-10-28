@@ -9,7 +9,9 @@ const generationSteps = [
   ["save", "초안 저장"],
 ];
 export default function GenerationProgress({ progress, busy, elapsed }) {
-  const index = generationSteps.findIndex(([key]) => key === (progress.failedStage || progress.stage));
+  const index = generationSteps.findIndex(
+    ([key]) => key === (progress.failedStage || progress.stage),
+  );
   return (
     <section
       className="generation-progress"
@@ -38,14 +40,40 @@ export default function GenerationProgress({ progress, busy, elapsed }) {
       <ol>
         {generationSteps.map(([key, label], i) => {
           const done = progress.stage === "done" || index > i;
-          const active = key === progress.stage || (key === "prepare" && progress.stage === "connecting");
-          const showDetail = active || (progress.stage === "error" && i === Math.max(index, 0)) || (progress.stage === "done" && key === "save");
+          const active =
+            key === progress.stage ||
+            (key === "prepare" && progress.stage === "connecting");
+          const showDetail =
+            active ||
+            (progress.stage === "error" && i === Math.max(index, 0)) ||
+            (progress.stage === "done" && key === "save");
           return (
             <ProgressStep
               key={key}
               label={label}
-              status={done ? "complete" : progress.stage === "error" ? (i === Math.max(index, 0) ? "failed" : "skipped") : active ? "active" : "waiting"}
-              detail={showDetail ? <span role="status">{progress.detail}{busy && elapsed >= 30 && key === "analyze" && <span className="inline-wait-note">AI 응답은 요청당 최대 10분까지 기다립니다.</span>}</span> : undefined}
+              status={
+                done
+                  ? "complete"
+                  : progress.stage === "error"
+                    ? i === Math.max(index, 0)
+                      ? "failed"
+                      : "skipped"
+                    : active
+                      ? "active"
+                      : "waiting"
+              }
+              detail={
+                showDetail ? (
+                  <span role="status">
+                    {progress.detail}
+                    {busy && elapsed >= 30 && key === "analyze" && (
+                      <span className="inline-wait-note">
+                        AI 응답은 요청당 최대 10분까지 기다립니다.
+                      </span>
+                    )}
+                  </span>
+                ) : undefined
+              }
               iconSize={18}
             />
           );

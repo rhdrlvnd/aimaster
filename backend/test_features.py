@@ -209,6 +209,32 @@ class FeatureTests(unittest.TestCase):
   self.assertEqual(self.post('/questions/'+rows[0]['id']+'/answer',content='정산 담당자에게 확인하세요.').status_code,200)
   self.login('demo-next')
   self.assertEqual(self.features()['questions'][0]['answer'],'정산 담당자에게 확인하세요.')
+ def test_oauth_callback_without_strict_session_cookie(self):
+  from urllib.parse import urlparse,parse_qs
+  with patch.object(calendar_api,'config',return_value=('test-client','test-secret','http://testserver/api/calendar/callback')):
+   response=self.client.post('/api/calendar/connect')
+  self.assertIn('SameSite=lax',response.headers['set-cookie'])
+  self.assertIn('HttpOnly',response.headers['set-cookie'])
+  nonce=parse_qs(urlparse(response.json()['url']).query)['state'][0]
+  binding=calendar_api.PENDING[nonce]['binding']
+  self.client.cookies.clear()
+  response=self.client.get('/api/calendar/callback',params={'state':nonce,'error':'access_denied'},headers={'cookie':'handover_oauth='+binding},follow_redirects=False)
+  self.assertEqual(response.status_code,307)
+  self.assertEqual(response.headers['location'],'/?calendar=cancelled')
+  self.assertIn('Max-Age=0',response.headers['set-cookie'])
+  self.assertEqual(self.client.get('/api/calendar/callback',params={'state':nonce,'error':'access_denied'},headers={'cookie':'handover_oauth='+binding}).status_code,400)
+ def test_oauth_rejects_missing_binding_and_changed_user(self):
+  from urllib.parse import urlparse,parse_qs
+  for changed_user in (False,True):
+   self.login('demo-dev')
+   with patch.object(calendar_api,'config',return_value=('test-client','test-secret','http://testserver/api/calendar/callback')):
+    response=self.client.post('/api/calendar/connect')
+   nonce=parse_qs(urlparse(response.json()['url']).query)['state'][0]
+   binding=calendar_api.PENDING[nonce]['binding']
+   if changed_user:self.login('demo-next')
+   else:self.client.cookies.clear()
+   response=self.client.get('/api/calendar/callback',params={'state':nonce,'error':'access_denied'},headers={'cookie':'handover_oauth='+binding} if changed_user else {})
+   self.assertEqual(response.status_code,400)
  def test_calendar_events_without_credentials_fail_explicitly(self):
   self.confirm();self.login('demo-next')
   calendar_api.TOKENS.clear()
