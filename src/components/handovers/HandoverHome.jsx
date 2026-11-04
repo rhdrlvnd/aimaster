@@ -9,11 +9,12 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import { api } from "../../services/api";
+import AdminDashboard from "./AdminDashboard";
 const blank = {
   name: "",
   scope: "",
   owner: "",
-  successor: "",
+  successors: [""],
   start_date: "",
   end_date: "",
 };
@@ -84,15 +85,27 @@ export default function HandoverHome({ onOpen }) {
     setEditing(item || null);
     setForm(
       item
-        ? Object.fromEntries(Object.keys(blank).map((k) => [k, item[k] || ""]))
-        : { ...blank, owner: user.name },
+        ? {
+            ...Object.fromEntries(
+              Object.keys(blank).map((k) => [k, item[k] || ""]),
+            ),
+            successors: item.successors || [item.successor || ""],
+          }
+        : { ...blank, successors: [""], owner: user.name },
     );
   }
   function close() {
     if (saving) return;
-    const original = editing || blank;
+    const original = editing
+      ? {
+          ...editing,
+          successors: editing.successors || [editing.successor || ""],
+        }
+      : { ...blank, owner: user.name };
     if (
-      Object.keys(blank).some((k) => form[k] !== (original[k] || "")) &&
+      Object.keys(blank).some(
+        (k) => JSON.stringify(form[k]) !== JSON.stringify(original[k] || ""),
+      ) &&
       !window.confirm("입력한 내용을 버리고 닫을까요?")
     )
       return;
@@ -150,123 +163,132 @@ export default function HandoverHome({ onOpen }) {
           전체 목록은 공개되며, 내용은 인계자·인수자만 열 수 있습니다.
         </span>
       </div>
-      <header className="handover-home-heading">
-        <div>
-          <h1>인수인계 목록</h1>
-          <p>
-            담당 업무별로 인수인계를 시작하고, 문서와 체크리스트를 관리하세요.
-          </p>
-        </div>
-        <button
-          className="primary"
-          disabled={!user || switching}
-          onClick={() => start()}
-        >
-          <Plus size={18} />
-          인수인계 시작
-        </button>
-      </header>
-      {error && !form && (
-        <div className="alert error" role="alert">
-          {error}
-          <button onClick={load}>다시 불러오기</button>
-        </div>
-      )}
-      {!user ? (
-        <section className="empty">
-          <h2>테스트 사용자를 선택해 주세요</h2>
-          <p>
-            사용자를 바꾸면 참여 여부에 따라 접근 가능한 인수인계가 달라집니다.
-          </p>
-        </section>
-      ) : loading ? (
-        <div className="empty">
-          <LoaderCircle className="spin" />
-          목록을 불러오는 중입니다.
-        </div>
-      ) : !error && !list.length ? (
-        <section className="empty handover-empty">
-          <BookOpen size={38} />
-          <h2>첫 인수인계를 시작해 보세요</h2>
-          <p>
-            담당 업무와 전임자·후임자, 기간을 입력한 뒤 업무 문서를 등록할 수
-            있어요.
-          </p>
-          <button
-            className="primary"
-            disabled={!user || switching}
-            onClick={() => start()}
-          >
-            인수인계 시작
-          </button>
-        </section>
+      {user?.role === "admin" ? (
+        <AdminDashboard key={user.id} onOpen={(id) => onOpen(id, user)} />
       ) : (
-        <div className="handover-grid">
-          {list.map((item) => (
-            <article key={item.id} className="handover-entry">
-              <div className="handover-entry-top">
-                <span className="status">
-                  {statuses[item.status] || item.status}
-                </span>
-                {item.can_manage && (
-                  <button
-                    className="text-button"
-                    onClick={() => start(item)}
-                    aria-label={item.name + " 기본 정보 수정"}
-                  >
-                    <Pencil size={14} />
-                    기본 정보 수정
-                  </button>
-                )}
-              </div>
-              <h2>{item.name}</h2>
+        <>
+          <header className="handover-home-heading">
+            <div>
+              <h1>인수인계 목록</h1>
               <p>
-                {!item.can_access
-                  ? "참여자만 상세 내용을 확인할 수 있습니다."
-                  : item.scope ||
-                    "기존 자료를 보존한 인수인계입니다. 기본 정보를 입력해 주세요."}
+                담당 업무별로 인수인계를 시작하고, 문서와 체크리스트를
+                관리하세요.
               </p>
-              <dl>
-                <div>
-                  <dt>전임자 → 후임자</dt>
-                  <dd>
-                    {item.owner || "미입력"} → {item.successor || "미입력"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>기간</dt>
-                  <dd>
-                    {item.start_date || "미입력"} ~ {item.end_date || "미입력"}
-                  </dd>
-                </div>
-              </dl>
-              <div className="handover-entry-bottom">
-                <span>
-                  {item.can_access
-                    ? `문서 ${item.document_count}개 · 체크리스트 ${item.item_count}개`
-                    : "접근 제한"}
-                </span>
-                <button
-                  disabled={!item.can_access}
-                  onClick={() => onOpen(item.id, user)}
-                  aria-label={item.name + " 열기"}
-                >
-                  {item.can_access ? (
-                    <>
-                      열기
-                      <ArrowRight size={16} />
-                    </>
-                  ) : (
-                    <>
-                      참여자 전용
-                      <LockKeyhole size={16} />
-                    </>
-                  )}
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+            </div>
+            <button
+              className="primary"
+              disabled={!user || switching}
+              onClick={() => start()}
+            >
+              <Plus size={18} />
+              인수인계 시작
+            </button>
+          </header>
+          {error && !form && (
+            <div className="alert error" role="alert">
+              {error}
+              <button onClick={load}>다시 불러오기</button>
+            </div>
+          )}
+          {!user ? (
+            <section className="empty">
+              <h2>테스트 사용자를 선택해 주세요</h2>
+              <p>
+                사용자를 바꾸면 참여 여부에 따라 접근 가능한 인수인계가
+                달라집니다.
+              </p>
+            </section>
+          ) : loading ? (
+            <div className="empty">
+              <LoaderCircle className="spin" />
+              목록을 불러오는 중입니다.
+            </div>
+          ) : !error && !list.length ? (
+            <section className="empty handover-empty">
+              <BookOpen size={38} />
+              <h2>첫 인수인계를 시작해 보세요</h2>
+              <p>
+                담당 업무와 전임자·후임자, 기간을 입력한 뒤 업무 문서를 등록할
+                수 있어요.
+              </p>
+              <button
+                className="primary"
+                disabled={!user || switching}
+                onClick={() => start()}
+              >
+                인수인계 시작
+              </button>
+            </section>
+          ) : (
+            <div className="handover-grid">
+              {list.map((item) => (
+                <article key={item.id} className="handover-entry">
+                  <div className="handover-entry-top">
+                    <span className="status">
+                      {statuses[item.status] || item.status}
+                    </span>
+                    {item.can_manage && (
+                      <button
+                        className="text-button"
+                        onClick={() => start(item)}
+                        aria-label={item.name + " 기본 정보 수정"}
+                      >
+                        <Pencil size={14} />
+                        기본 정보 수정
+                      </button>
+                    )}
+                  </div>
+                  <h2>{item.name}</h2>
+                  <p>
+                    {!item.can_access
+                      ? "참여자만 상세 내용을 확인할 수 있습니다."
+                      : item.scope ||
+                        "기존 자료를 보존한 인수인계입니다. 기본 정보를 입력해 주세요."}
+                  </p>
+                  <dl>
+                    <div>
+                      <dt>전임자 → 후임자</dt>
+                      <dd>
+                        {item.owner || "미입력"} → {item.successor || "미입력"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>기간</dt>
+                      <dd>
+                        {item.start_date || "미입력"} ~{" "}
+                        {item.end_date || "미입력"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="handover-entry-bottom">
+                    <span>
+                      {item.can_access
+                        ? `문서 ${item.document_count}개 · 체크리스트 ${item.item_count}개`
+                        : "접근 제한"}
+                    </span>
+                    <button
+                      disabled={!item.can_access}
+                      onClick={() => onOpen(item.id, user)}
+                      aria-label={item.name + " 열기"}
+                    >
+                      {item.can_access ? (
+                        <>
+                          열기
+                          <ArrowRight size={16} />
+                        </>
+                      ) : (
+                        <>
+                          참여자 전용
+                          <LockKeyhole size={16} />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
       )}
       {form && (
         <div className="drawer-backdrop">
@@ -321,31 +343,90 @@ export default function HandoverHome({ onOpen }) {
                   onChange={(e) => setForm({ ...form, scope: e.target.value })}
                 />
               </label>
-              <div className="handover-form-row">
-                {[
-                  ["owner", "전임자"],
-                  ["successor", "후임자"],
-                ].map(([key, title]) => (
-                  <label key={key}>
-                    {title}
-                    <select
-                      required
-                      value={form[key]}
-                      disabled={saving || key === "owner"}
-                      onChange={(e) =>
-                        setForm({ ...form, [key]: e.target.value })
-                      }
-                    >
-                      <option value="">사용자 선택</option>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.name}>
-                          {u.name} · {u.department}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
-              </div>
+              <label>
+                인계자
+                <input value={form.owner} disabled />
+              </label>
+              <fieldset className="handover-successors" disabled={saving}>
+                <legend>인수자</legend>
+                <p>
+                  함께 인수받을 사람을 선택하세요. 진행률은 공유하며 누구나 완료
+                  처리할 수 있습니다.
+                </p>
+                <div className="handover-successor-list">
+                  {form.successors.map((name, index) => (
+                    <div className="handover-successor-row" key={index}>
+                      <select
+                        required
+                        aria-label={`인수자 ${index + 1}`}
+                        value={name}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            successors: form.successors.map((value, i) =>
+                              i === index ? e.target.value : value,
+                            ),
+                          })
+                        }
+                      >
+                        <option value="">사용자 선택</option>
+                        {users
+                          .filter(
+                            (person) =>
+                              person.name !== form.owner &&
+                              person.role !== "admin",
+                          )
+                          .map((person) => (
+                            <option
+                              key={person.id}
+                              value={person.name}
+                              disabled={
+                                person.name !== name &&
+                                form.successors.includes(person.name)
+                              }
+                            >
+                              {person.name} · {person.department}
+                            </option>
+                          ))}
+                      </select>
+                      {form.successors.length > 1 && (
+                        <button
+                          type="button"
+                          aria-label={`인수자 ${index + 1} 삭제`}
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              successors: form.successors.filter(
+                                (_, i) => i !== index,
+                              ),
+                            })
+                          }
+                        >
+                          <X size={15} /> 삭제
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="handover-successor-add"
+                  disabled={
+                    saving ||
+                    form.successors.includes("") ||
+                    form.successors.length >=
+                      users.filter(
+                        (person) =>
+                          person.name !== form.owner && person.role !== "admin",
+                      ).length
+                  }
+                  onClick={() =>
+                    setForm({ ...form, successors: [...form.successors, ""] })
+                  }
+                >
+                  <Plus size={16} /> 인수자 추가
+                </button>
+              </fieldset>
               <div className="handover-form-row">
                 {[
                   ["start_date", "시작일"],

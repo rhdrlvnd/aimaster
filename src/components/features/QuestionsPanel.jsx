@@ -192,7 +192,7 @@ export default function QuestionsPanel({
                       <p>
                         {msg.action.kind === "progress"
                           ? "인수 상태 변경"
-                          : "캘린더 등록"}
+                          : "Google Tasks 등록"}
                         :{" "}
                         {msg.action.item_ids
                           .map(

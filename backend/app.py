@@ -26,8 +26,10 @@ from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from backend.slides import render_slides, MAX_SLIDES
 from backend import rag
+from backend import ai_usage
 from backend.checklist_prompts import WRITING_RULES, REVIEW_RULES, validate_readability
 from backend import dependencies
+from backend.participants import is_successor
 
 ROOT = Path(__file__).resolve().parents[1]
 for line in (ROOT / '.env.local').read_text(encoding='utf-8-sig').splitlines() if (ROOT / '.env.local').exists() else []:
@@ -85,6 +87,7 @@ def ensure_storage():
                 db.execute('UPDATE handovers SET payload=? WHERE id=?', (json.dumps(state, ensure_ascii=False), row[0]))
             db.execute("INSERT INTO migration_flags VALUES ('participants-v1')")
         db.commit()
+    ai_usage.ensure_storage(DB)
 
 
 def read_state():
@@ -111,6 +114,7 @@ def write_state(state):
 
 
 DEMO_USERS = [
+    {'id':'demo-admin', 'name':'관리자', 'department':'운영관리', 'role':'admin'},
     {'id':'demo-dev', 'name':'김개발', 'department':'개발팀'},
     {'id':'demo-next', 'name':'이후임', 'department':'개발팀'},
     {'id':'demo-hr', 'name':'박인사', 'department':'인사팀'},
@@ -156,19 +160,26 @@ def session(user=Depends(current_user)):
 
 def participant(state, user):
     h = state['handover']
-    return user['id'] in (h.get('owner_id'), h.get('successor_id'))
+    return user['id'] == h.get('owner_id') or is_successor(state, user['id'])
 
 
 def participants(body, user):
-    by_name = {u['name']: u for u in DEMO_USERS}
-    if body.owner not in by_name or body.successor not in by_name:
+    by_name = {u['name']: u for u in DEMO_USERS if u.get('role') != 'admin'}
+    names = body.successors if body.successors is not None else [body.successor]
+    names = [name.strip() for name in names]
+    if not names or len(names) != len(set(names)):
+        raise HTTPException(422, '인수자를 한 명 이상 선택하고 중복 없이 등록해 주세요.')
+    if body.owner not in by_name or any(name not in by_name for name in names):
         raise HTTPException(422, '등록된 인계자와 인수자를 선택해 주세요.')
-    owner, successor = by_name[body.owner], by_name[body.successor]
-    if owner['id'] == successor['id']:
+    owner = by_name[body.owner]
+    successors = [by_name[name] for name in names]
+    if owner['id'] in [person['id'] for person in successors]:
         raise HTTPException(422, '인계자와 인수자는 서로 달라야 합니다.')
     if user['id'] != owner['id']:
         raise HTTPException(403, '본인을 인계자로 지정한 인수인계만 생성하거나 수정할 수 있습니다.')
-    return {'owner_id': owner['id'], 'successor_id': successor['id']}
+    return {'owner_id': owner['id'], 'successor_id': successors[0]['id'],
+            'successor_ids': [person['id'] for person in successors],
+            'successors': names, 'successor': ', '.join(names)}
 
 
 async def handover_scope(handover_id: uuid.UUID, request: Request, user=Depends(current_user)):
@@ -176,9 +187,12 @@ async def handover_scope(handover_id: uuid.UUID, request: Request, user=Depends(
     token = HANDOVER_ID.set(str(handover_id))
     try:
         state = read_state()
-        if not participant(state, user):
+        admin = user.get('role') == 'admin'
+        if admin and request.method not in ('GET', 'HEAD'):
+            raise HTTPException(403, '관리자는 인수인계 내용을 읽기 전용으로 조회할 수 있습니다.')
+        if not admin and not participant(state, user):
             raise HTTPException(403, "지정된 인계자와 인수자만 접근할 수 있습니다.")
-        if state['handover']['owner_id'] != user['id']:
+        if not admin and state['handover']['owner_id'] != user['id']:
             if request.method not in ('GET', 'HEAD'):
                 raise HTTPException(403, '문서 등록·분석과 체크리스트 생성·검토·확정은 인계자만 할 수 있습니다.')
             if state['status'] != 'approved' and not request.url.path.endswith('/workspace'):
@@ -193,7 +207,8 @@ class HandoverDetails(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scope: str = Field(min_length=1, max_length=1000)
     owner: str = Field(min_length=1, max_length=60)
-    successor: str = Field(min_length=1, max_length=60)
+    successor: str = Field(default='', max_length=300)
+    successors: list[str] | None = Field(default=None, min_length=1, max_length=20)
     start_date: date
     end_date: date
 
@@ -228,13 +243,29 @@ def list_handovers(user=Depends(current_user)):
     return {'handovers': result}
 
 
+@app.get('/api/admin/dashboard')
+def admin_dashboard(user=Depends(current_user)):
+    if user.get('role') != 'admin':
+        raise HTTPException(403, '관리자만 전체 진행 현황을 조회할 수 있습니다.')
+    from backend.admin_dashboard import summarize
+    from zoneinfo import ZoneInfo
+    ensure_storage()
+    today = datetime.now(ZoneInfo('Asia/Seoul')).date()
+    with LOCK, closing(sqlite3.connect(DB)) as db:
+        rows = [summarize(json.loads(row[0]), today) for row in db.execute('SELECT payload FROM handovers')]
+    order = {'delayed':0, 'review':1, 'soon':2, 'unscheduled':3, 'on_track':4, 'complete':5}
+    rows.sort(key=lambda row:(order[row['status']], row['end_date'] or '9999-12-31', row['name']))
+    counts = {key:sum(row['status']==key for row in rows) for key in order}
+    return {'as_of':today.isoformat(), 'counts':counts, 'handovers':rows}
+
+
 @app.post('/api/handovers', status_code=201)
 def create_handover(body: HandoverDetails, user=Depends(current_user)):
     ensure_storage()
     handover_id = str(uuid.uuid4())
     state = initial()
     state.pop('project', None)
-    state['handover'] = dict(body.model_dump(mode='json'), **participants(body, user), id=handover_id, created_at=now())
+    state['handover'] = {**body.model_dump(mode='json'), **participants(body, user), 'id':handover_id, 'created_at':now()}
     with LOCK, closing(sqlite3.connect(DB)) as db:
         db.execute('INSERT INTO handovers VALUES (?, ?)', (handover_id, json.dumps(state, ensure_ascii=False)))
         db.commit()
@@ -246,7 +277,22 @@ def update_handover(body: HandoverUpdate, user=Depends(current_user)):
     with LOCK:
         state = read_state()
         check_revision(state, body.revision)
-        state['handover'].update({**body.model_dump(mode='json', exclude={'revision'}), **participants(body, user)})
+        changes = {**body.model_dump(mode='json', exclude={'revision'}), **participants(body, user)}
+        # Membership changes do not change the shared work or its planned dates.
+        from backend import scheduling
+        before = scheduling.fingerprint(state)
+        membership = {'successor', 'successors', 'successor_id', 'successor_ids'}
+        members_changed = state['handover'].get('successor_ids', [state['handover'].get('successor_id')]) != changes['successor_ids']
+        only_membership = all(state['handover'].get(key) == value for key, value in changes.items() if key not in membership)
+        state['handover'].update(changes)
+        if only_membership:
+            schedule = state.get('schedule', {})
+            for target in (schedule, schedule.get('draft', {})):
+                if target.get('fingerprint') == before:
+                    target['fingerprint'] = scheduling.fingerprint(state)
+        # A signature must not silently cover newly added recipients.
+        if members_changed:
+            state.pop('signature', None)
         write_state(state)
     return summary(state)
 
@@ -527,7 +573,7 @@ def workspace(user=Depends(current_user)):
     with LOCK:
         state = read_state()
     can_manage = state['handover']['owner_id'] == user['id']
-    state['permissions'] = {'can_manage':can_manage, 'can_view_content':can_manage or state['status']=='approved'}
+    state['permissions'] = {'can_manage':can_manage, 'can_view_content':can_manage or state['status']=='approved' or user.get('role')=='admin', 'admin_read_only':user.get('role')=='admin'}
     for doc in state['documents']:
         if doc.get('rag',{}).get('status')=='ready' and doc['rag'].get('version')!=rag.VERSION:
             doc['rag']={**doc['rag'],'status':'outdated','error':'전체 내용 정리 방식으로 다시 분석해 주세요. 기존 자료는 보관되어 있습니다.'}
@@ -913,3 +959,4 @@ app.include_router(workspace_routes, prefix='/api/handovers/{handover_id}', depe
 from backend import features
 import sys
 features.install(sys.modules[__name__])
+ai_usage.install(sys.modules[__name__])

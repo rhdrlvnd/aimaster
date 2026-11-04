@@ -38,10 +38,16 @@ export default function RecipientView({ state, tab, setSelected }) {
     <section className="review-panel">
       <div className="review-heading">
         <div>
-          <h2>확정된 인수인계 체크리스트</h2>
+          <h2>
+            {state.status === "approved"
+              ? "확정된 인수인계 체크리스트"
+              : "인수인계 체크리스트 · 검토 중"}
+          </h2>
           <p>
-            인계자의 검토가 완료된 내용입니다. 항목별 원문 근거를 확인할 수
-            있습니다.
+            {state.status === "approved"
+              ? "인계자의 검토가 완료된 내용입니다."
+              : "아직 확정되지 않은 내용입니다."}{" "}
+            항목별 원문 근거를 확인할 수 있습니다.
           </p>
         </div>
       </div>

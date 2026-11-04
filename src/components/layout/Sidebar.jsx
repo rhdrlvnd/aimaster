@@ -35,7 +35,11 @@ export default function Sidebar({
         <span className="project-icon">H</span>
         <div>
           {handover?.name || "불러오는 중"}
-          <small>인수인계 목록으로</small>
+          <small>
+            {currentUser?.role === "admin"
+              ? "관리자 대시보드로"
+              : "인수인계 목록으로"}
+          </small>
         </div>
         <ChevronRight size={15} />
       </button>
@@ -82,7 +86,9 @@ export default function Sidebar({
                 currentUser &&
                 (currentUser.id === handover.owner_id
                   ? " · 인계자"
-                  : currentUser.id === handover.successor_id
+                  : (
+                        handover.successor_ids || [handover.successor_id]
+                      ).includes(currentUser.id)
                     ? " · 인수자"
                     : "")}
             </small>

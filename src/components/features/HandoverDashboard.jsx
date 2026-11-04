@@ -1,4 +1,5 @@
 import React from "react";
+import { ChevronDown, ArrowUpRight, Layers } from "lucide-react";
 export default function HandoverDashboard({ state, data, onOpenChecklist }) {
   const ids = new Set(state.items.map((i) => i.id));
   const done = Object.entries(data.progress).filter(
@@ -19,7 +20,7 @@ export default function HandoverDashboard({ state, data, onOpenChecklist }) {
   );
   const categories = [...new Set(state.items.map((i) => i.category))];
   return (
-    <div className="feature-card">
+    <div className="feature-card handover-dashboard">
       <h2>{state.handover.name}</h2>
       <p>{state.handover.scope}</p>
       <p>
@@ -65,52 +66,98 @@ export default function HandoverDashboard({ state, data, onOpenChecklist }) {
           체크리스트 또는 기간이 변경되었습니다. 일정을 다시 생성·확정해 주세요.
         </div>
       )}
-      <h3>분류별 인수 진행</h3>
-      {categories.map((c) => {
-        const rows = state.items.filter((i) => i.category === c);
-        const n = rows.filter(
-          (i) => data.progress[i.id]?.status === "done",
-        ).length;
-        return (
-          <details className="category-checklists" key={c}>
-            <summary>
-              <span>{c || "미분류"}</span>
-              <progress
-                aria-label={`${c} 인수 진행`}
-                value={n}
-                max={rows.length}
-              />
-              <strong>
-                {n}/{rows.length}
-              </strong>
-              <span className="category-expand" aria-hidden="true">
-                ⌄
-              </span>
-            </summary>
-            <ul>
-              {rows.map((item) => (
-                <li key={item.id}>
-                  <button onClick={() => onOpenChecklist(item.id)}>
-                    <span className="category-item-title">{item.title}</span>
-                    <span className="category-item-status">
-                      {
-                        { todo: "미시작", doing: "진행 중", done: "완료" }[
-                          data.progress[item.id]?.status || "todo"
-                        ]
-                      }
-                    </span>
-                    <span className="category-item-link">
-                      체크리스트 보기 →
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        );
-      })}
-      <h3>답변 대기 질문</h3>
-      <p>{data.questions.filter((q) => !q.answer).length}건</p>
+      <div className="category-section-heading">
+        <div>
+          <h3>분류별 인수 진행</h3>
+          <p>분류를 펼치면 해당 업무와 진행 상태를 확인할 수 있어요.</p>
+        </div>
+        <span className="category-count">
+          <Layers size={15} /> {categories.length}개 분류
+        </span>
+      </div>
+      <div className="category-grid">
+        {categories.map((c) => {
+          const rows = state.items.filter((i) => i.category === c);
+          const n = rows.filter(
+            (i) => data.progress[i.id]?.status === "done",
+          ).length;
+          const active = rows.filter(
+            (i) => data.progress[i.id]?.status === "doing",
+          ).length;
+          const percent = Math.round((n / rows.length) * 100);
+          const complete = n === rows.length;
+          return (
+            <details className="category-checklists" key={c}>
+              <summary>
+                <span className="category-card-heading">
+                  <span className="category-name">{c || "미분류"}</span>
+                  <span className="category-completion">
+                    {n}/{rows.length} 완료
+                  </span>
+                </span>
+                <span
+                  className="category-track"
+                  role="progressbar"
+                  aria-label={`${c || "미분류"} 완료율`}
+                  aria-valuenow={percent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <span
+                    className="category-track-done"
+                    style={{ width: `${percent}%` }}
+                  />
+                </span>
+                <span className="category-card-footer">
+                  <span>
+                    {complete
+                      ? "모든 업무 인수 완료"
+                      : `남은 업무 ${rows.length - n}개`}
+                    {active > 0 && ` · 진행 중 ${active}개`}
+                  </span>
+                  <span className="category-expand-label">
+                    업무 보기{" "}
+                    <ChevronDown size={15} className="category-expand" />
+                  </span>
+                </span>
+              </summary>
+              <ul>
+                {rows.map((item) => (
+                  <li key={item.id}>
+                    <button onClick={() => onOpenChecklist(item.id)}>
+                      <span className="category-item-title">{item.title}</span>
+                      <span className="category-item-status">
+                        {
+                          { todo: "미시작", doing: "진행 중", done: "완료" }[
+                            data.progress[item.id]?.status || "todo"
+                          ]
+                        }
+                      </span>
+                      <span
+                        className="category-item-link"
+                        aria-label="체크리스트 보기"
+                      >
+                        <ArrowUpRight size={16} aria-hidden="true" />
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          );
+        })}
+      </div>
+      {categories.length === 0 && (
+        <p className="category-empty">
+          체크리스트를 만들면 분류별 진행 현황이 표시됩니다.
+        </p>
+      )}
+      {!state.permissions.admin_read_only && (
+        <>
+          <h3>답변 대기 질문</h3>
+          <p>{data.questions.filter((q) => !q.answer).length}건</p>
+        </>
+      )}
     </div>
   );
 }

@@ -10,7 +10,12 @@ const destinations = {
   qa: ["schedule", null],
 };
 
-export default function PageNavigation({ tab, busy, onNavigate }) {
+export default function PageNavigation({
+  tab,
+  busy,
+  onNavigate,
+  adminReadOnly = false,
+}) {
   const targets = destinations[tab] || [];
   return (
     <div
@@ -19,7 +24,7 @@ export default function PageNavigation({ tab, busy, onNavigate }) {
       aria-label="관련 화면으로 이동"
     >
       {targets.map((key, index) => {
-        if (!key) return null;
+        if (!key || (adminReadOnly && key === "qa")) return null;
         const label = navigation.find(([id]) => id === key)?.[2];
         return (
           <button

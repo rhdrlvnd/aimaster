@@ -261,14 +261,3 @@ class FeatureTests(unittest.TestCase):
     self.assertEqual(self.client.get('/api/calendar/callback',params={'state':nonce,'code':'unused'}).status_code,400)
     http.assert_not_called()
    self.assertEqual(self.client.get('/api/calendar/callback',params={'state':nonce,'code':'unused'}).status_code,400)
-
-class CalendarTests(unittest.IsolatedAsyncioTestCase):
- async def test_duplicate_is_updated_and_partial_failure_reported(self):
-  client=AsyncMock();client.__aenter__.return_value=client
-  client.post.side_effect=[MagicMock(status_code=409),MagicMock(status_code=503)]
-  client.patch.return_value=MagicMock(status_code=200)
-  state={'handover':{'id':'h','name':'인수인계'},'items':[{'id':x,'title':x,'description':'설명'} for x in ['a','b']], 'schedule':{'confirmed':[{'item_id':x,'start':'2026-10-26','end':'2026-10-26'} for x in ['a','b']]}}
-  with patch.object(calendar_api,'access_token',AsyncMock(return_value='test')),patch.object(calendar_api.httpx,'AsyncClient',return_value=client):
-   rows=await calendar_api.sync_events({'id':'u'},state,['a','b'])
-  self.assertEqual([r['status'] for r in rows],['success','failed']);client.patch.assert_awaited_once()
-  self.assertEqual(client.post.call_args_list[0].kwargs['json']['end']['date'],'2026-10-27')

@@ -134,7 +134,11 @@ function Workspace({ handoverId, currentUser, onExit }) {
         busy={busy || featureBusy}
         navigationBusy={navigationBusy}
         generating={generating}
-        nav={nav}
+        nav={
+          currentUser?.role === "admin"
+            ? nav.filter(([key]) => key !== "qa")
+            : nav
+        }
         tab={tab}
         setTab={setTab}
         setError={setError}
@@ -220,6 +224,7 @@ function Workspace({ handoverId, currentUser, onExit }) {
                   </span>
                   {state.permissions?.can_view_content !== false && (
                     <PageNavigation
+                      adminReadOnly={currentUser?.role === "admin"}
                       tab={tab}
                       busy={navigationBusy}
                       onNavigate={(next) => {
@@ -231,6 +236,12 @@ function Workspace({ handoverId, currentUser, onExit }) {
                   )}
                 </div>
               </div>
+              {state.permissions?.admin_read_only && (
+                <div className="alert" role="status">
+                  관리자 읽기 전용 · 진행 현황과 자료를 조회할 수 있습니다. 내용
+                  수정과 완료 처리는 참여자가 담당합니다.
+                </div>
+              )}
               {state.permissions?.can_view_content === false ? (
                 <RecipientView
                   state={state}

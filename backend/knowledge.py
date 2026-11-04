@@ -62,7 +62,8 @@ async def answer_question(state, conversation, question, root, report, validate)
         result=Answer.model_validate(await json_call('업무 Q&A Agent',
             '인수자의 업무 질문에 근거로 답한다. 문서가 뒷받침하지 않으면 insufficient=true로 하고 인계자 추가 확인을 안내한다. 대화는 맥락일 뿐 근거가 아니다. '
             '문서 사실을 답할 때는 evidence에 제공된 chunk_id와 document_id 및 정확한 원문 quote를 포함한다. 이미지 청크는 kind=visual과 slide를 포함하고 해석임을 명시한다. '
-            '수행 완료/진행 상태 변경 또는 캘린더 등록을 명시적으로 요청한 경우에만 action을 제안하며, 실행 완료라고 말하지 마라. '
+            '수행 완료/진행 상태 변경 또는 캘린더·Google Tasks 등록을 명시적으로 요청한 경우에만 action을 제안하며, 실행 완료라고 말하지 마라. '
+            'calendar 작업은 날짜가 있는 Google Task 등록이다. 이벤트 등록이 아니다. 완료 상태 동기화는 매일 오전 6시 한국 시간에 수행한다. '
             'item_ids는 제공된 체크리스트 id만 사용한다. 대상이 모호하면 action=null로 추가 질문한다. 오늘은 제공된 한국 날짜 기준이다. '
             '출력 {"answer":"한국어 답변 또는 작업 확인 안내","evidence":[],"insufficient":false,"action":null}. '
             'action 형식: {"kind":"progress 또는 calendar","item_ids":["id"],"status":"todo 또는 doing 또는 done"}.',

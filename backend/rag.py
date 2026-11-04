@@ -12,6 +12,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
+from backend.ai_usage import tracked_post
 
 VERSION = 'handover-content-v2'
 
@@ -43,7 +44,7 @@ async def request(deployment, route, payload):
     started=time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=ai_timeout()) as client:
-            response = await client.post(f'{base}/openai/deployments/{quote(deployment, safe="")}/{route}',
+            response = await tracked_post(client, f'{base}/openai/deployments/{quote(deployment, safe="")}/{route}', model=deployment, route=route,
                 params={'api-version':os.environ.get('LLM_API_VERSION','2024-12-01-preview')},
                 headers={'api-key':key}, json=payload)
     except httpx.TimeoutException:

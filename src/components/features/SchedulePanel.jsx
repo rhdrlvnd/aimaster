@@ -131,7 +131,7 @@ export default function SchedulePanel({
       {!owner && (
         <div className="feature-card calendar-connection-bar">
           <div>
-            <strong>Google Calendar</strong>
+            <strong>Google Tasks · 완료 상태 동기화</strong>
             <span
               className={
                 data.calendar.connected
@@ -145,9 +145,29 @@ export default function SchedulePanel({
               {!data.calendar.configured
                 ? "서비스의 Google 연결 설정이 필요합니다."
                 : data.calendar.connected
-                  ? "‘목록 · 인수 진행’에서 등록할 일정을 선택하세요."
-                  : "내 Google 캘린더에 확정된 인수인계 일정을 등록하세요."}
+                  ? "등록한 업무의 완료·완료 취소를 매일 오전 6시(한국 시간)에 양쪽으로 반영합니다."
+                  : data.calendar.needs_reconnect
+                    ? "Tasks 접근 동의가 필요합니다. Google 계정을 다시 연결해 주세요."
+                    : "내 Google Tasks에 업무를 등록하고 Google 캘린더에서도 확인하세요."}
             </p>
+            {data.calendar.connected && (
+              <p className="muted">
+                연결된 업무 {data.google_tasks?.linked_count || 0}개 · ‘진행
+                중’은 우리 서비스에서만 관리합니다.
+                {data.google_tasks?.items?.some((item) => item.checked_at) && (
+                  <>
+                    {" "}
+                    마지막 확인:{" "}
+                    {new Date(
+                      data.google_tasks.items
+                        .map((item) => item.checked_at || "")
+                        .sort()
+                        .at(-1),
+                    ).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}
+                  </>
+                )}
+              </p>
+            )}
           </div>
           {data.calendar.connected ? (
             <button
@@ -169,7 +189,9 @@ export default function SchedulePanel({
               disabled={busy || !data.calendar.configured}
               onClick={connect}
             >
-              Google Calendar 연결
+              {data.calendar.needs_reconnect
+                ? "Google Tasks 다시 연결"
+                : "Google Tasks 연결"}
             </button>
           )}
         </div>
@@ -539,11 +561,15 @@ export default function SchedulePanel({
                         }
                         onClick={() =>
                           window.confirm(
-                            "선택한 확정 일정을 Google Calendar에 등록 또는 갱신할까요?",
-                          ) && run("/calendar/events", { item_ids: selected })
+                            "선택한 업무를 Google Tasks에 등록하거나 날짜를 갱신할까요? 같은 업무로 이 서비스가 등록한 기존 캘린더 이벤트는 Task 등록 후 정리합니다. 완료 상태는 매일 오전 6시에 동기화합니다.",
+                          ) &&
+                          run("/google/tasks", {
+                            item_ids: selected,
+                            replace_events: true,
+                          })
                         }
                       >
-                        선택 일정 캘린더 등록
+                        선택 업무 Tasks 등록
                       </button>
                     </>
                   ) : null}
@@ -552,12 +578,26 @@ export default function SchedulePanel({
             </div>
           </>
         )}
-        {data.calendar_results.map((r, i) => (
-          <p key={i}>
-            {title(r.item_id)} ·{" "}
-            {r.status === "success" ? "캘린더 등록 완료" : r.detail}
-          </p>
-        ))}
+        {data.calendar_results
+          .filter(
+            (result) =>
+              items.some((item) => item.id === result.item_id) &&
+              !result.event_id &&
+              (result.status !== "success" || result.task_id),
+          )
+          .map((result, index) => (
+            <p key={index}>
+              {title(result.item_id)} ·{" "}
+              {result.status === "success" ? "Tasks 등록 완료" : result.detail}
+            </p>
+          ))}
+        {data.google_tasks?.items
+          ?.filter((item) => ["attention", "error"].includes(item.status))
+          .map((item) => (
+            <div className="inline-warning" role="status" key={item.item_id}>
+              {title(item.item_id)} · {item.detail}
+            </div>
+          ))}
       </div>
     </>
   );

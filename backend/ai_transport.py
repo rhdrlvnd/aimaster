@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from email.utils import parsedate_to_datetime
+from backend.ai_usage import tracked_post
 
 
 def retry_delay(response):
@@ -23,7 +24,8 @@ log = logging.getLogger('uvicorn.error.handover.transport')
 async def post(client, url, *, label, report=None, stage='analyze', **kwargs):
     for attempt in range(2):
         started = time.monotonic()
-        response = await client.post(url, **kwargs)
+        response = await tracked_post(client, url, model=kwargs.get('json', {}).get('model', 'unknown'),
+                                      route='chat/completions', attempt=attempt + 1, **kwargs)
         log.info('operation=%s attempt=%s status=%s elapsed=%.2f',
                  label, attempt + 1, response.status_code, time.monotonic() - started)
         if response.status_code not in (429, 502, 503, 504) or attempt == 1:

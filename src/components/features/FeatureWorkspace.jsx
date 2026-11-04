@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api, streamRequest } from "../../services/api";
 import SchedulePanel from "./SchedulePanel";
 import QuestionsPanel from "./QuestionsPanel";
 import HandoverDashboard from "./HandoverDashboard";
 import ExportPanel from "./ExportPanel";
+import ScheduleCalendar from "./ScheduleCalendar";
 
 export default function FeatureWorkspace({
   handoverId,
@@ -24,6 +25,34 @@ export default function FeatureWorkspace({
     [progress, setProgress] = useState(null);
   const [scheduleGenerating, setScheduleGenerating] = useState(false);
   const owner = state.permissions.can_manage;
+  const poll = useRef(null);
+  poll.current = async () => {
+    if (owner || busy || externalBusy || document.hidden) return;
+    const latest = await api(prefix + "/features");
+    setData(latest);
+    if (latest.revision !== state.revision) await onRefresh();
+  };
+  useEffect(() => {
+    // Read our DB only; Google status changes are processed by the 06:00 batch.
+    let running = false;
+    const check = async () => {
+      if (running) return;
+      running = true;
+      try {
+        await poll.current?.();
+      } catch {
+        /* Existing view remains available. */
+      } finally {
+        running = false;
+      }
+    };
+    const timer = window.setInterval(check, 60000);
+    window.addEventListener("focus", check);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", check);
+    };
+  }, [handoverId]);
   async function load() {
     const result = await api(prefix + "/features");
     setData(result);
@@ -119,10 +148,41 @@ export default function FeatureWorkspace({
       )}
       {tab === "schedule" && (
         <div className="schedule-panel-stack" hidden={scheduleGenerating}>
-          <SchedulePanel {...props} />
+          {state.permissions.admin_read_only ? (
+            <section className="feature-card">
+              <h2>인수인계 일정 · 읽기 전용</h2>
+              {data.schedule.draft ? (
+                <p>일정 초안입니다. 아직 확정되지 않았습니다.</p>
+              ) : (
+                !data.schedule_current && (
+                  <p>현재 내용과 일치하는 확정 일정이 없습니다.</p>
+                )
+              )}
+              {(data.schedule.draft?.rows || data.schedule.confirmed)
+                ?.length ? (
+                <ScheduleCalendar
+                  rows={data.schedule.draft?.rows || data.schedule.confirmed}
+                  settings={
+                    data.schedule.draft?.settings || data.schedule.settings
+                  }
+                  items={state.items}
+                  progress={data.progress}
+                  disabled
+                  readOnly
+                  lockReason="관리자는 일정을 조회할 수 있습니다. 일정 변경은 인계자가 담당합니다."
+                />
+              ) : (
+                <p>아직 작성된 일정이 없습니다.</p>
+              )}
+            </section>
+          ) : (
+            <SchedulePanel {...props} />
+          )}
         </div>
       )}
-      {tab === "qa" && <QuestionsPanel {...props} setSelected={setSelected} />}
+      {tab === "qa" && !state.permissions.admin_read_only && (
+        <QuestionsPanel {...props} setSelected={setSelected} />
+      )}
     </section>
   );
 }

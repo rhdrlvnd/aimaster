@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from typing import Literal
-from backend import scheduling, knowledge, calendar_api
+from backend import scheduling, knowledge, calendar_api, google_tasks
 from backend.agents import json_call
 from backend.exporting import build_docx
+from backend.participants import is_successor
 
 class Version(BaseModel): revision:int
 class Proposal(Version):
@@ -36,23 +37,42 @@ class ActionConfirm(Version):
 class Signature(Version):
     name:str=Field(min_length=1,max_length=80)
     consent:bool
-class Events(Version): item_ids:list[str]=Field(min_length=1,max_length=100)
+class Events(Version):
+    item_ids:list[str]=Field(min_length=1,max_length=100)
+    replace_events:bool=False
+
+def apply_progress(state,body,user):
+    google_tasks.check_state(state,user['id'])
+    ids={i['id'] for i in state['items']}
+    if set(body.item_ids)-ids or len(set(body.item_ids))!=len(body.item_ids): raise HTTPException(422,'대상 항목을 확인해 주세요.')
+    progress=state.setdefault('progress',{})
+    deps=state['schedule']['settings'].get('dependencies',{})
+    if body.status=='done':
+        done={k for k,v in progress.items() if v['status']=='done'}|set(body.item_ids)
+        if any(not set(deps.get(k,[]))<=done for k in body.item_ids): raise HTTPException(409,'선행 업무를 먼저 완료해 주세요.')
+    else:
+        if any(v['status']=='done' and k not in body.item_ids and set(deps.get(k,[]))&set(body.item_ids) for k,v in progress.items()):
+            raise HTTPException(409,'완료된 후속 업무가 있습니다. 후속 업무의 상태를 먼저 변경해 주세요.')
+    for key in body.item_ids: progress[key]={'status':body.status,'updated_at':datetime.now(ZoneInfo('Asia/Seoul')).isoformat(),'user_id':user['id']}
+
 
 def install(m):
     router=APIRouter()
-    async def scope(handover_id:uuid.UUID,user=Depends(m.current_user)):
+    async def scope(handover_id:uuid.UUID,request:Request,user=Depends(m.current_user)):
         m.ensure_storage();token=m.HANDOVER_ID.set(str(handover_id))
         try:
             state=m.read_state()
-            if not m.participant(state,user): raise HTTPException(403,'지정된 인계자·인수자만 접근할 수 있습니다.')
-            if state['handover']['owner_id']!=user['id'] and state['status']!='approved':
+            admin=user.get('role')=='admin'
+            if admin and request.method not in ('GET','HEAD'): raise HTTPException(403,'관리자는 읽기 전용으로 조회할 수 있습니다.')
+            if not admin and not m.participant(state,user): raise HTTPException(403,'지정된 인계자·인수자만 접근할 수 있습니다.')
+            if not admin and state['handover']['owner_id']!=user['id'] and state['status']!='approved':
                 raise HTTPException(403,'인계자가 확정한 뒤 사용할 수 있습니다.')
             yield
         finally:m.HANDOVER_ID.reset(token)
     def owner(state,user):
         if state['handover']['owner_id']!=user['id']: raise HTTPException(403,'인계자만 사용할 수 있습니다.')
     def successor(state,user):
-        if state['handover']['successor_id']!=user['id']: raise HTTPException(403,'인수자만 사용할 수 있습니다.')
+        if not is_successor(state,user['id']): raise HTTPException(403,'인수자만 사용할 수 있습니다.')
     def approved(state):
         if state['status']!='approved': raise HTTPException(409,'체크리스트를 먼저 확정해 주세요.')
     def valid_schedule(state):
@@ -62,30 +82,19 @@ def install(m):
             raise HTTPException(409,'최신 체크리스트와 기간 기준으로 일정을 확정해 주세요.')
         return schedule
     def persist_progress(state,body,user):
-        successor(state,user);valid_schedule(state)
-        ids={i['id'] for i in state['items']}
-        if set(body.item_ids)-ids or len(set(body.item_ids))!=len(body.item_ids): raise HTTPException(422,'대상 항목을 확인해 주세요.')
-        progress=state.setdefault('progress',{})
-        deps=state['schedule']['settings'].get('dependencies',{})
-        if body.status=='done':
-            done={k for k,v in progress.items() if v['status']=='done'}|set(body.item_ids)
-            if any(not set(deps.get(k,[]))<=done for k in body.item_ids): raise HTTPException(409,'선행 업무를 먼저 완료해 주세요.')
-        else:
-            if any(v['status']=='done' and k not in body.item_ids and set(deps.get(k,[]))&set(body.item_ids) for k,v in progress.items()):
-                raise HTTPException(409,'완료된 후속 업무가 있습니다. 후속 업무의 상태를 먼저 변경해 주세요.')
-        for key in body.item_ids: progress[key]={'status':body.status,'updated_at':m.now(),'user_id':user['id']}
+        apply_progress(state,body,user)
     @router.get('/features')
     def features(user=Depends(m.current_user)):
         state=m.read_state();schedule=state.get('schedule',{})
         own=state['handover']['owner_id']==user['id']
         public={k:v for k,v in schedule.items() if k!='draft'}
-        if own and schedule.get('draft'): public['draft']=schedule['draft']
+        if (own or user.get('role')=='admin') and schedule.get('draft'): public['draft']=schedule['draft']
         return {'revision':state['revision'],'schedule':public,'schedule_current':schedule.get('fingerprint')==scheduling.fingerprint(state),
             'draft_current':schedule.get('draft',{}).get('fingerprint')==scheduling.fingerprint(state),
-            'progress':state.get('progress',{}),'questions':state.get('questions',[]),
+            'progress':state.get('progress',{}),'questions':[] if user.get('role')=='admin' else state.get('questions',[]),
             'conversations':[c for c in state.get('conversations',[]) if c['user_id']==user['id']],
             'signature':state.get('signature') if own else None,'calendar_results':state.get('calendar_results',{}).get(user['id'],[]),
-            'calendar':calendar_api.status(user)}
+            'calendar':calendar_api.status(user),'google_tasks':google_tasks.public_status(user,state)}
     @router.post('/schedule/generate/stream')
     async def schedule_generate(body:Proposal,user=Depends(m.current_user)):
         state=m.read_state();owner(state,user);approved(state);m.check_revision(state,body.revision)
@@ -197,7 +206,7 @@ def install(m):
             m.validate_evidence([item],state['documents'],True);m.validate_retrieved([item],chunks)
         async def run(report):
             result=await knowledge.answer_question(state,conversation,body.question,m.DB.parent,report,validate)
-            if user['id']!=state['handover']['successor_id']: result['action']=None
+            if not is_successor(state,user['id']): result['action']=None
             message={'id':str(uuid.uuid4()),'question':body.question,'created_at':m.now(),**result,'action_executed':False}
             conversation['messages'].append(message)
             if len(conversation['messages'])>8:
@@ -231,7 +240,7 @@ def install(m):
             if action['kind']=='progress':
                 persist_progress(state,ProgressEdit(revision=body.revision,item_ids=action['item_ids'],status=action['status']),user)
                 msg['action_executed']=True;m.write_state(state);return {'ok':True}
-        results=await calendar_api.sync_events(user,state,action['item_ids'])
+        results=await google_tasks.register(m,user,action['item_ids'],body.revision)
         with m.LOCK:
             current=m.read_state()
             if current['revision']!=body.revision:
@@ -241,10 +250,11 @@ def install(m):
             msg['action_executed']=all(r['status']=='success' for r in results);msg['action_revision']=body.revision+1
             current.setdefault('calendar_results',{})[user['id']]=results;m.write_state(current)
         return {'results':results}
-    @router.post('/calendar/events')
+    @router.post('/calendar/events')  # Compatibility: old clients now create Tasks.
+    @router.post('/google/tasks')
     async def calendar_events(body:Events,user=Depends(m.current_user)):
         state=m.read_state();successor(state,user);valid_schedule(state);m.check_revision(state,body.revision)
-        results=await calendar_api.sync_events(user,state,list(dict.fromkeys(body.item_ids)))
+        results=await google_tasks.register(m,user,list(dict.fromkeys(body.item_ids)),body.revision,body.replace_events)
         with m.LOCK:
             current=m.read_state()
             if current['revision']!=body.revision:
@@ -269,3 +279,4 @@ def install(m):
         return Response(content,media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',headers={'Content-Disposition':'attachment; filename="handover.docx"'})
     m.app.include_router(router,prefix='/api/handovers/{handover_id}',dependencies=[Depends(scope)])
     calendar_api.install(m)
+    google_tasks.install_batch(m,persist_progress)
