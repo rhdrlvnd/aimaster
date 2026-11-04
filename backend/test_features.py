@@ -172,6 +172,28 @@ class FeatureTests(unittest.TestCase):
   self.client.put(self.prefix+'/checklist',json={'revision':self.state()['revision'],'items':items})
   self.post('/approve');self.login('demo-next')
   self.assertFalse(self.features()['schedule_current']);self.assertEqual(self.post('/progress',item_ids=['a'],status='done').status_code,409)
+ def test_reopen_preserves_schedule_progress_and_signature_until_content_changes(self):
+  self.confirm()
+  self.assertEqual(self.post('/signature',name='김개발',consent=True).status_code,200)
+  self.login('demo-next')
+  self.assertEqual(self.post('/reopen').status_code,403)
+  self.assertEqual(self.post('/progress',item_ids=['a'],status='done').status_code,200)
+  self.login('demo-dev')
+  before=self.state();features_before=self.features()
+  self.assertTrue(features_before['schedule_current'])
+  response=self.post('/reopen');self.assertEqual(response.status_code,200,response.text)
+  reopened=self.state();features_reopened=self.features()
+  self.assertEqual(reopened['items'],before['items'])
+  self.assertEqual(scheduling.fingerprint(reopened),scheduling.fingerprint(before))
+  self.assertTrue(features_reopened['schedule_current'])
+  for key in ('schedule','progress','signature'):
+   self.assertEqual(features_reopened[key],features_before[key])
+  self.assertEqual(self.post('/approve').status_code,200)
+  self.assertEqual(self.client.get(self.prefix+'/export').status_code,200)
+  for key in ('schedule','progress','signature'):
+   self.assertEqual(self.features()[key],features_before[key])
+  self.login('demo-next')
+  self.assertEqual(self.post('/progress',item_ids=['b'],status='done').status_code,200)
  def test_draft_current_tracks_checklist_changes(self):
   self.draft();self.assertTrue(self.features()['draft_current'])
   self.post('/reopen')

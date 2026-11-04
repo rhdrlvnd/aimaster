@@ -5,6 +5,7 @@ from docx import Document
 from docx.shared import Pt, Inches
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from backend.priorities import normalize_priority
 
 def build_docx(state,signature):
     doc=Document()
@@ -26,7 +27,7 @@ def build_docx(state,signature):
     doc.add_heading('업무 및 일정',1)
     for n,item in enumerate(state['items'],1):
         doc.add_heading(f"{n}. {item['title']}",2)
-        doc.add_paragraph(f"분류: {item['category']} / 중요도: {item['priority']}")
+        doc.add_paragraph(f"분류: {item['category']} / 중요도: {normalize_priority(item['priority'])}")
         doc.add_paragraph(item['description'])
         row=schedule.get(item['id'])
         if row: doc.add_paragraph(f"일정: {row['start']} {row.get('start_time') or ''} ~ {row['end']} {row.get('end_time') or ''}")

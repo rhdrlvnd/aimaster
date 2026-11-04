@@ -1,5 +1,6 @@
 import React from "react";
 import ChecklistItem from "../checklist/ChecklistItem";
+import PriorityGuide from "../checklist/PriorityGuide";
 
 export default function RecipientView({ state, tab, setSelected }) {
   if (!state.permissions.can_view_content) {
@@ -36,20 +37,23 @@ export default function RecipientView({ state, tab, setSelected }) {
   }
   return (
     <section className="review-panel">
-      <div className="review-heading">
-        <div>
-          <h2>
-            {state.status === "approved"
-              ? "확정된 인수인계 체크리스트"
-              : "인수인계 체크리스트 · 검토 중"}
-          </h2>
-          <p>
-            {state.status === "approved"
-              ? "인계자의 검토가 완료된 내용입니다."
-              : "아직 확정되지 않은 내용입니다."}{" "}
-            항목별 원문 근거를 확인할 수 있습니다.
-          </p>
+      <div className="review-controls">
+        <div className="review-heading">
+          <div>
+            <h2>
+              {state.status === "approved"
+                ? "확정된 인수인계 체크리스트"
+                : "인수인계 체크리스트 · 검토 중"}
+            </h2>
+            <p>
+              {state.status === "approved"
+                ? "인계자의 검토가 완료된 내용입니다."
+                : "아직 확정되지 않은 내용입니다."}{" "}
+              항목별 원문 근거를 확인할 수 있습니다.
+            </p>
+          </div>
         </div>
+        {state.items.length > 0 && <PriorityGuide />}
       </div>
       <div className="items">
         {state.items.map((item, index) => (

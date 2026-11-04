@@ -64,6 +64,13 @@ export default function useWorkspace(handoverId) {
     reviewed = items.filter((i) => i.reviewed).length;
   const changed = state?.status === "stale";
   function edit(id, key, value) {
+    const item = items.find((entry) => entry.id === id);
+    if (
+      !item ||
+      JSON.stringify(item[key] ?? (key === "dependencies" ? [] : null)) ===
+        JSON.stringify(value)
+    )
+      return;
     setItems((prev) =>
       prev.map((i) =>
         i.id === id
@@ -347,7 +354,7 @@ export default function useWorkspace(handoverId) {
     action(
       "reopen",
       () => api("/reopen", "POST", { revision: state.revision }),
-      "검토를 다시 열었습니다.",
+      "수정할 수 있도록 확정을 해제했습니다. 기존 검토 표시는 유지됩니다. 수정한 항목만 다시 검토한 뒤 확정해 주세요.",
     );
   const saveChecklist = () =>
     action(

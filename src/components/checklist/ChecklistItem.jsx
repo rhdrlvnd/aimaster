@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ArrowUpRight, FileText, Trash2, Pencil, Check } from "lucide-react";
 import DependencyPicker from "../features/DependencyPicker";
+import { PRIORITIES, priorityInfo } from "../../services/priorities";
 
 export default function ChecklistItem({
   item,
@@ -17,6 +18,7 @@ export default function ChecklistItem({
   const [editing, setEditing] = useState(!item.title);
   const [showDependencies, setShowDependencies] = useState(false);
   const editable = editing && !locked;
+  const priority = priorityInfo(item.priority);
   return (
     <article
       id={`checklist-${item.id}`}
@@ -28,11 +30,10 @@ export default function ChecklistItem({
         <div className="item-meta">
           <span className="category-label">{item.category || "미분류"}</span>
           <span
-            className={
-              "importance-badge " + (item.priority === "높음" ? "high" : "")
-            }
+            className={`importance-badge ${priority.tone}`}
+            title={priority.description}
           >
-            중요도 {item.priority}
+            중요도 {priority.label}
           </span>
           <span className={"review-status " + (item.reviewed ? "done" : "")}>
             {item.reviewed ? "검토 완료" : "미검토"}
@@ -82,11 +83,11 @@ export default function ChecklistItem({
                 <select
                   aria-label="중요도"
                   disabled={!!busy}
-                  value={item.priority}
+                  value={priority.label}
                   onChange={(e) => edit(item.id, "priority", e.target.value)}
                 >
-                  {["높음", "보통", "낮음"].map((p) => (
-                    <option key={p}>{p}</option>
+                  {PRIORITIES.map(({ label }) => (
+                    <option key={label}>{label}</option>
                   ))}
                 </select>
               </label>
@@ -114,7 +115,9 @@ export default function ChecklistItem({
               />
             </label>
             <div className="editor-help">
-              <span>수정한 내용은 하단의 ‘변경 저장’으로 저장하세요.</span>
+              <span>
+                수정한 항목은 다시 검토한 뒤 하단에서 ‘변경 저장’을 눌러 주세요.
+              </span>
               <button
                 className="text-button"
                 aria-label="항목 삭제"

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { priorityInfo } from "../../services/priorities";
 
 export default function ScheduleDetailDrawer({
   item,
@@ -41,7 +42,7 @@ export default function ScheduleDetailDrawer({
           {items.findIndex((entry) => entry.id === item.id) + 1}. {item.title}
         </h2>
         <p>
-          중요도 {item.priority || "보통"} · {row?.start}
+          중요도 {priorityInfo(item.priority).label} · {row?.start}
           {row?.end !== row?.start ? ` ~ ${row?.end}` : ""}
         </p>
         {item.description && (

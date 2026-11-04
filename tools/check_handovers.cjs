@@ -20,7 +20,7 @@ const assert=require('node:assert/strict');
     else if(action==='workspace')result=s;
     else if(action==='checklist'){s.items=req.postDataJSON().items;s.status='review';s.revision++;result={ok:true};}
     else if(action==='approve'){s.status='approved';s.revision++;result={ok:true};}
-    else if(action==='reopen'){s.status='review';s.revision++;s.items.forEach(i=>i.reviewed=false);result={ok:true};}
+    else if(action==='reopen'){s.status='review';s.revision++;result={ok:true};}
     else throw Error('Unexpected '+path);
    }
    await r.fulfill({json:result});
@@ -46,7 +46,7 @@ const assert=require('node:assert/strict');
   await page.getByLabel('검토 완료',{exact:true}).check();
   await page.getByRole('button',{name:'변경 저장',exact:true}).click();
   await page.getByRole('button',{name:'검토 확정',exact:true}).click();
-  await page.getByRole('button',{name:'검토 다시 열기',exact:true}).click();
+  await page.getByRole('button',{name:'확정 내용 수정',exact:true}).click();
   await page.getByRole('button',{name:'인수인계 목록으로'}).click();
   await create('재무업무 인수인계');
   await page.getByRole('button',{name:'체크리스트',exact:true}).click();

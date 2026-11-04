@@ -167,7 +167,7 @@ async def repair_patch(items,issues,source,documents,report,feedback=''):
         '기존 업무 수정은 replacements에 index와 item을 반환한다. 업무가 너무 넓으면 replacements에는 좁힌 원래 업무를, additions에는 분리한 독립 업무를 반환한다. 누락 업무도 additions에 추가한다. 분리 시 원래 업무의 핵심 조건과 근거를 해당 항목으로 옮기고 중복시키지 마라. '
         '관계없는 항목은 반환하지 마라. 원문에 없는 사실은 만들지 마라. item 필드는 title,description,category,priority,evidence다. '
         '지적된 업무의 핵심 조건을 보존하면서 짧게 다시 작성하라. 세부 기록 필드와 절차를 전부 설명에 덧붙이지 말고 원문 근거로 연결하라. 수정된 항목도 아래 작성 기준을 준수하라. '
-        'title 50자, description 500자, category 40자 이내. priority는 높음/보통/낮음. evidence는 1~20개이며 '
+        'title 50자, description 500자, category 40자 이내. priority는 긴급/보통/여유. evidence는 1~20개이며 '
         'document_id,chunk_id,quote,kind를 보존한다. text 인용의 slide는 null이며, visual의 slide는 해당 청크의 1 이상의 실제 장표 번호다. 0을 사용하지 마라. text 인용은 원문 그대로, visual은 장표 해석이다. '
         'JSON {"replacements":[{"index":0,"item":{...}}],"additions":[]}만 반환하라.'+WRITING_RULES,
         {'source':source,'items':[{'index':n,**i.model_dump()} for n,i in enumerate(items)],'issues':issues,'validation_feedback':feedback})

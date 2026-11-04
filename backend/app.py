@@ -30,6 +30,7 @@ from backend import ai_usage
 from backend.checklist_prompts import WRITING_RULES, REVIEW_RULES, validate_readability
 from backend import dependencies
 from backend.participants import is_successor
+from backend.priorities import Priority, normalize_priority, normalize_state_priorities
 
 ROOT = Path(__file__).resolve().parents[1]
 for line in (ROOT / '.env.local').read_text(encoding='utf-8-sig').splitlines() if (ROOT / '.env.local').exists() else []:
@@ -98,7 +99,7 @@ def read_state():
         row = db.execute('SELECT payload FROM handovers WHERE id=?', (handover_id,)).fetchone()
     if not row:
         raise HTTPException(404, '인수인계를 찾을 수 없습니다.')
-    return json.loads(row[0])
+    return normalize_state_priorities(json.loads(row[0]))
 
 
 def write_state(state):
@@ -299,7 +300,7 @@ def update_handover(body: HandoverUpdate, user=Depends(current_user)):
 
 def editable(state):
     if state['status'] == 'approved':
-        raise HTTPException(409, '확정한 체크리스트입니다. 먼저 검토 다시 열기를 선택해 주세요.')
+        raise HTTPException(409, '확정한 체크리스트입니다. 먼저 확정 내용 수정을 선택해 주세요.')
 
 
 def check_revision(state, revision):
@@ -327,7 +328,7 @@ class Item(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=1, max_length=3000)
     category: str = Field(min_length=1, max_length=40)
-    priority: Literal['높음', '보통', '낮음']
+    priority: Priority
     evidence: list[Evidence] = Field(default_factory=list, max_length=20)
 
 
@@ -341,6 +342,14 @@ class ReviewItem(Item):
     origin: Literal['ai', 'manual'] = 'manual'
     dependencies: list[str] = Field(default_factory=list,max_length=100)
     dependency_notes: dict[str,dict[str,str]] = Field(default_factory=dict)
+
+    @model_validator(mode='before')
+    @classmethod
+    def accept_legacy_priority(cls, value):
+        # Existing browser tabs may still submit the former labels.
+        if isinstance(value, dict) and 'priority' in value:
+            return {**value, 'priority': normalize_priority(value['priority'])}
+        return value
 
 
 class Review(BaseModel):
@@ -390,9 +399,9 @@ SYSTEM = '''너는 업무 인수인계 체크리스트 작성 도우미다. 아�
 중복 업무는 합치되 다른 조건이나 절차는 누락하지 않는다. 담당자, 기간, 선행 조건을 지어내지 않는다.
 한 항목은 사람이 검토할 수 있는 한 업무다. 한국어로 간단히 작성한다. title, description, category에는 중국어·한자 문구를 쓰지 말고 자연스러운 한국어로 작성한다. API, SQL 같은 영문 업무 용어는 유지할 수 있다. evidence.quote는 언어와 관계없이 원문 그대로 인용한다.
 출력은 JSON 객체: {"items":[{"title":"업무명", "description":"무엇을 확인/전달할지",
-"category":"운영 또는 장애 대응 등", "priority":"높음 또는 보통 또는 낮음",
+"category":"운영 또는 장애 대응 등", "priority":"긴급 또는 보통 또는 여유",
 "evidence":[{"document_id":"제공된 id", "quote":"원문에서 그대로 가져온 연속된 인용문"}]}]}.
-각 항목에는 최소 한 개의 원문 인용이 반드시 있어야 한다. 중요도는 문서의 빈도와 영향에 따른 제안이다.
+각 항목에는 최소 한 개의 원문 인용이 반드시 있어야 한다. 중요도는 후임자가 인수인계 기간 중 파악해야 할 시점에 따른 제안이다.
 실행하거나 전달할 업무가 없으면 임의 항목을 만들지 마라. 업무를 찾지 못하면 items는 빈 배열로 반환한다. 코드블록 없이 JSON만 반환한다.'''
 
 SYSTEM += '''
@@ -403,7 +412,7 @@ SYSTEM += '''
 문서에 있는 업무 범위, 정기 업무, 승인 및 보고, 예외 처리, 금지 사항, 미해결 사항을 검토한다.
 description에는 후임자가 무엇을 확인하거나 전달받아야 하는지 쓴다. 문서에 없는 담당자·기한·절차를 보충하지 않는다. extraction_warnings에 추출 제외 영역이 있으면 그 영역까지 확인했다고 주장하지 않는다.
 문서 간 정책이 충돌하거나 제안과 현행이 다르면 임의로 결정하지 말고 확인할 사항으로 표시하고 양쪽 근거를 연결한다.
-importance는 실제 스키마의 priority로 작성한다. 높음은 문서상 업무 중단·법정 기한·금전 손실 등 영향 근거가 있을 때만 제안한다.
+importance는 실제 스키마의 priority로 작성한다. 아래 중요도 판단 기준을 따른다.
 각 설명의 핵심 주장 전체를 뒷받침하는 근거를 연결한다. 단어가 비슷하다는 이유로 근거를 붙이지 않는다.
 '''
 
@@ -948,8 +957,6 @@ def reopen(body: Revision):
         if state['status'] != 'approved':
             raise HTTPException(409, '확정된 체크리스트가 아닙니다.')
         state.update(status='review', approved_at=None)
-        for item in state['items']:
-            item['reviewed'] = False
         write_state(state)
     return {'ok': True}
 

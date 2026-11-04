@@ -30,7 +30,7 @@ class WorkflowTests(unittest.TestCase):
     def seed(self):
         self.assertEqual(self.client.post('/api/sample').status_code, 200)
         state = self.state()
-        item = module.Item(title='주문 수집 확인', description='전날 수집 결과를 확인한다.', category='운영', priority='높음',
+        item = module.Item(title='주문 수집 확인', description='전날 수집 결과를 확인한다.', category='운영', priority='보통',
             evidence=[module.Evidence(document_id=state['documents'][0]['id'], quote='매일 오전 9시에 주문 운영 화면에서 전날 주문 수집 결과를 확인한다.')])
         with patch.object(module, 'generate', AsyncMock(return_value=[item])):
             result = self.client.post('/api/generate', json={'revision': state['revision']})
@@ -109,7 +109,42 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.put('/api/checklist',json={'revision':approved['revision'],'items':approved['items']}).status_code,409)
         self.assertEqual(module.read_state()['status'],'approved')
         self.assertEqual(self.client.post('/api/reopen',json={'revision':approved['revision']}).status_code,200)
+        reopened = self.state()
+        self.assertEqual(reopened['status'], 'review')
+        self.assertIsNone(reopened['approved_at'])
+        self.assertEqual(reopened['items'], approved['items'])
+        self.assertEqual(module.read_state()['items'], approved['items'])
+        self.assertEqual(self.client.post('/api/approve',json={'revision':reopened['revision']}).status_code,200)
+        self.assertEqual(self.state()['status'], 'approved')
+
+    def test_reopen_still_requires_review_for_edited_items(self):
+        state = self.seed()
+        state['items'][0]['reviewed'] = True
+        self.client.put('/api/checklist',json={'revision':state['revision'],'items':state['items']}).raise_for_status()
+        self.client.post('/api/approve',json={'revision':self.state()['revision']}).raise_for_status()
+        self.client.post('/api/reopen',json={'revision':self.state()['revision']}).raise_for_status()
+        reopened = self.state()
+        reopened['items'][0].update(description='전날 수집 결과와 오류 발생 내역을 확인한다.', reviewed=False)
+        self.client.put('/api/checklist',json={'revision':reopened['revision'],'items':reopened['items']}).raise_for_status()
+        edited = self.state()
+        self.assertEqual(self.client.post('/api/approve',json={'revision':edited['revision']}).status_code,422)
         self.assertFalse(self.state()['items'][0]['reviewed'])
+        edited['items'][0]['reviewed'] = True
+        self.client.put('/api/checklist',json={'revision':edited['revision'],'items':edited['items']}).raise_for_status()
+        self.assertEqual(self.client.post('/api/approve',json={'revision':self.state()['revision']}).status_code,200)
+
+    def test_reopen_rejects_stale_revision_and_repeat_without_reset(self):
+        state = self.seed()
+        state['items'][0]['reviewed'] = True
+        self.client.put('/api/checklist',json={'revision':state['revision'],'items':state['items']}).raise_for_status()
+        self.client.post('/api/approve',json={'revision':self.state()['revision']}).raise_for_status()
+        approved = self.state()
+        self.assertEqual(self.client.post('/api/reopen',json={'revision':approved['revision']-1}).status_code,409)
+        self.assertEqual(self.state(), approved)
+        self.client.post('/api/reopen',json={'revision':approved['revision']}).raise_for_status()
+        reopened = self.state()
+        self.assertEqual(self.client.post('/api/reopen',json={'revision':reopened['revision']}).status_code,409)
+        self.assertEqual(self.state(), reopened)
 
     def test_document_change_blocks_approval(self):
         state = self.seed()

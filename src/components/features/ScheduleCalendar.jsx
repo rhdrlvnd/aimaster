@@ -1,5 +1,8 @@
 import React, { useState, useRef } from "react";
+import { Check, CircleDot } from "lucide-react";
 import ScheduleDetailDrawer from "./ScheduleDetailDrawer";
+import { PRIORITIES, priorityInfo } from "../../services/priorities";
+const statusLabels = { todo: "미시작", doing: "진행 중", done: "완료" };
 const iso = (d) => d.toISOString().slice(0, 10);
 const add = (day, n) => {
   const d = new Date(day + "T00:00:00Z");
@@ -27,9 +30,9 @@ export default function ScheduleCalendar({
   const suppressClick = useRef(false);
   const [dragView, setDragView] = useState(null);
   function beginDrag(e, row) {
+    suppressClick.current = false;
     if (disabled || progress[row.item_id]?.status === "done" || e.button !== 0)
       return;
-    suppressClick.current = false;
     drag.current = {
       id: row.item_id,
       hour: hour(row.start_time),
@@ -84,12 +87,6 @@ export default function ScheduleCalendar({
   const days = Array.from({ length: count }, (_, n) => add(first, n - offset));
   const title = (id) => items.find((i) => i.id === id)?.title || id;
   const number = (id) => items.findIndex((item) => item.id === id) + 1;
-  const predecessors = (id) =>
-    items.find((item) => item.id === id)?.dependencies || [];
-  const successors = (id) =>
-    items
-      .filter((item) => (item.dependencies || []).includes(id))
-      .map((item) => item.id);
   const selectedItem = items.find((item) => item.id === selected);
   const selectedRow = rows.find((row) => row.item_id === selected);
   const canMoveSelected = !disabled && progress[selected]?.status !== "done";
@@ -139,11 +136,28 @@ export default function ScheduleCalendar({
             다음 달
           </button>
         </div>
-        <span>월간 일정 · {rows.length}개 업무</span>
+        <div className="calendar-summary">
+          <span>월간 일정 · {rows.length}개 업무</span>
+          <div
+            className="calendar-priority-legend"
+            aria-label="업무 중요도: 긴급 빨강, 보통 노랑, 여유 초록"
+          >
+            <span>중요도</span>
+            {PRIORITIES.map(({ label, tone, description }) => (
+              <span key={tone} title={description}>
+                <i
+                  className={`priority-dot priority-${tone}`}
+                  aria-hidden="true"
+                />
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
       <p className="calendar-help">
         {lockReason ||
-          "카드에서 중요도와 선행·후속 업무 수를 확인하세요. 카드를 클릭하면 오른쪽에서 상세를 보고, 드래그하면 다른 날짜로 이동합니다."}
+          "카드를 클릭하면 업무 상세를 확인하고, 드래그하면 날짜를 변경할 수 있습니다."}
       </p>
       {selectedItem && (
         <ScheduleDetailDrawer
@@ -227,125 +241,136 @@ export default function ScheduleCalendar({
               {name}
             </div>
           ))}
-          {days.map((day) => (
-            <div
-              key={day}
-              data-calendar-date={day}
-              className={
-                "month-day " +
-                (day.slice(0, 7) !== month ? "outside-month " : "") +
-                (!available(day) ? "unavailable " : "") +
-                (hoverDay === day ? "drop-target" : "")
-              }
-              onDragOver={(e) => {
-                if (!disabled && available(day)) {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setHoverDay(day);
+          {days.map((day) => {
+            const dayRows = available(day)
+              ? rows
+                  .filter((row) => row.start <= day && row.end >= day)
+                  .sort(
+                    (a, b) =>
+                      a.start.localeCompare(b.start) ||
+                      (a.start_time || "").localeCompare(b.start_time || ""),
+                  )
+              : [];
+            const completedCount = dayRows.filter(
+              (row) => progress[row.item_id]?.status === "done",
+            ).length;
+            return (
+              <div
+                key={day}
+                data-calendar-date={day}
+                className={
+                  "month-day " +
+                  (day.slice(0, 7) !== month ? "outside-month " : "") +
+                  (!available(day) ? "unavailable " : "") +
+                  (hoverDay === day ? "drop-target" : "")
                 }
-              }}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget))
-                  setHoverDay(null);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const id = e.dataTransfer.getData("text/plain");
-                const row = rows.find((r) => r.item_id === id);
-                if (row) move(id, day, hour(row.start_time));
-              }}
-            >
-              <div className="month-date-heading">
-                <span
-                  className={
-                    "month-date" +
-                    (new Date(day + "T00:00:00Z").getUTCDay() === 0 ||
-                    (settings.holidays || []).includes(day)
-                      ? " holiday-date"
-                      : "")
+                onDragOver={(e) => {
+                  if (!disabled && available(day)) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setHoverDay(day);
                   }
-                >
-                  {Number(day.slice(8))}
-                </span>
-                {!available(day) && (
-                  <small>
-                    {day < settings.start || day > settings.end
-                      ? "기간 외"
-                      : "휴무"}
-                  </small>
-                )}
-              </div>
-              <div className="month-events">
-                {available(day) &&
-                  rows
-                    .filter((r) => r.start <= day && r.end >= day)
-                    .sort(
-                      (a, b) =>
-                        a.start.localeCompare(b.start) ||
-                        (a.start_time || "").localeCompare(b.start_time || ""),
-                    )
-                    .map((r) => {
-                      const priority =
-                        items.find((item) => item.id === r.item_id)?.priority ||
-                        "보통";
-                      const done = progress[r.item_id]?.status === "done";
-                      return (
-                        <div className="calendar-event-card" key={r.item_id}>
-                          <button
-                            type="button"
-                            className={
-                              "month-event " +
-                              (selected === r.item_id ? "selected " : "") +
-                              (done ? "completed" : "")
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget))
+                    setHoverDay(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const id = e.dataTransfer.getData("text/plain");
+                  const row = rows.find((r) => r.item_id === id);
+                  if (row) move(id, day, hour(row.start_time));
+                }}
+              >
+                <div className="month-date-heading">
+                  <div className="month-date-label">
+                    <span
+                      className={
+                        "month-date" +
+                        (new Date(day + "T00:00:00Z").getUTCDay() === 0 ||
+                        (settings.holidays || []).includes(day)
+                          ? " holiday-date"
+                          : "")
+                      }
+                    >
+                      {Number(day.slice(8))}
+                    </span>
+                    {dayRows.length > 0 && (
+                      <span
+                        className="month-day-progress"
+                        aria-label={`${day} 업무 ${dayRows.length}개 중 ${completedCount}개 완료`}
+                        title={`총 ${dayRows.length}개 업무 중 ${completedCount}개 완료`}
+                      >
+                        완료 {completedCount}/{dayRows.length}
+                      </span>
+                    )}
+                  </div>
+                  {!available(day) && (
+                    <small>
+                      {day < settings.start || day > settings.end
+                        ? "기간 외"
+                        : "휴무"}
+                    </small>
+                  )}
+                </div>
+                <div className="month-events">
+                  {dayRows.map((r) => {
+                    const priority = priorityInfo(
+                      items.find((item) => item.id === r.item_id)?.priority,
+                    );
+                    const done = progress[r.item_id]?.status === "done";
+                    const doing = progress[r.item_id]?.status === "doing";
+                    const label = `${number(r.item_id)}. ${title(r.item_id)} · 중요도 ${priority.label} · ${statusLabels[progress[r.item_id]?.status || "todo"]}${r.start !== day ? " · 계속" : ""}`;
+                    return (
+                      <div className="calendar-event-card" key={r.item_id}>
+                        <button
+                          type="button"
+                          className={
+                            `month-event priority-${priority.tone} ` +
+                            (selected === r.item_id ? "selected " : "") +
+                            (done ? "completed" : "")
+                          }
+                          draggable={false}
+                          aria-label={label}
+                          aria-pressed={selected === r.item_id}
+                          title={`${label}${!disabled && !done ? " · 드래그하여 날짜 이동" : ""}${lockReason ? " · " + lockReason : ""}`}
+                          onClick={() => {
+                            if (suppressClick.current) {
+                              suppressClick.current = false;
+                              return;
                             }
-                            draggable={false}
-                            title={`${title(r.item_id)} · 중요도 ${priority} · 드래그하여 날짜 이동${lockReason ? " · " + lockReason : ""}`}
-                            onClick={() => {
-                              if (suppressClick.current) {
-                                suppressClick.current = false;
-                                return;
-                              }
-                              select(r);
-                            }}
-                            onPointerDown={(e) => beginDrag(e, r)}
-                            onPointerMove={updateDrag}
-                            onPointerUp={finishDrag}
-                            onPointerCancel={cancelDrag}
-                            onLostPointerCapture={cancelDrag}
-                          >
-                            <small
-                              className={
-                                "calendar-priority " +
-                                (priority === "높음" ? "high" : "")
-                              }
-                            >
-                              중요도 {priority}{" "}
-                              {readOnly
-                                ? "· " +
-                                  {
-                                    todo: "미시작",
-                                    doing: "진행 중",
-                                    done: "완료",
-                                  }[progress[r.item_id]?.status || "todo"]
-                                : done
-                                  ? "· 완료"
-                                  : ""}
-                              {r.start !== day ? " · 계속" : ""}
-                            </small>
-                            <span>
-                              {number(r.item_id)}. {title(r.item_id)}
-                            </span>
-                            <small className="calendar-relation-count">
-                              선행 {predecessors(r.item_id).length} · 후속{" "}
-                              {successors(r.item_id).length}
-                            </small>
-                          </button>
-                        </div>
-                      );
-                    })}
+                            select(r);
+                          }}
+                          onPointerDown={(e) => beginDrag(e, r)}
+                          onPointerMove={updateDrag}
+                          onPointerUp={finishDrag}
+                          onPointerCancel={cancelDrag}
+                          onLostPointerCapture={cancelDrag}
+                        >
+                          <span className="month-event-title">
+                            {number(r.item_id)}. {title(r.item_id)}
+                          </span>
+                          {done ? (
+                            <Check
+                              className="month-event-status"
+                              size={14}
+                              aria-hidden="true"
+                            />
+                          ) : doing ? (
+                            <CircleDot
+                              className="month-event-status"
+                              size={14}
+                              aria-hidden="true"
+                            />
+                          ) : null}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

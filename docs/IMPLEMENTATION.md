@@ -10,7 +10,7 @@
 |---|---|---|
 | 문서 | 다중 업로드, 순차 분석, 문서별 진행/결과, 개별·전체 재분석, 전체 삭제 | backend/documents.py, backend/slides.py, backend/rag.py, src/components/documents/ |
 | 체크리스트 | 전체 자료 기반 목록 선정·분할 작성·통합 검토·근거 검증·선행 업무 제안 | backend/app.py, backend/checklist_generation.py, backend/checklist_prompts.py, backend/dependencies.py |
-| 사용자 검토 | 항목 편집·전체 검토 완료·선행 관계 편집·저장·확정·검토 다시 열기 | src/components/checklist/, src/hooks/useWorkspace.js |
+| 사용자 검토 | 항목 편집·전체 검토 완료·선행 관계 편집·저장·확정·확정 내용 수정. 확정 해제 시 기존 검토 표시는 유지하고 수정한 항목만 재검토 | src/components/checklist/, src/hooks/useWorkspace.js |
 | 일정 | 균등 날짜 배치, 월간 달력, 초안 드래그·날짜 선택, 확정 달력, 재조정 | backend/scheduling.py, backend/features.py, src/components/features/SchedulePanel.jsx |
 | 현황 | 기본 진입 화면, 분류별 목록 펼치기·항목 이동, 수행 상태 | src/App.jsx, src/components/features/HandoverDashboard.jsx |
 | 질문 | 인수자 채팅·대화 목록, 인계자 질문 목록·답변, 원 대화 연결 | backend/knowledge.py, backend/features.py, src/components/features/ |

@@ -9,6 +9,7 @@ from backend.agents import json_call, run_role
 from backend import rag
 from typing import Literal
 from datetime import time
+from backend.priorities import PRIORITY_RULES, PRIORITY_ORDER, normalize_priority, fingerprint_items
 
 class ScheduleSettings(BaseModel):
     start: date
@@ -37,7 +38,30 @@ class OrderResult(BaseModel):
     items: list[OrderEntry]
 
 def fingerprint(state):
-    return hashlib.sha256(json.dumps({'items':state['items'],'period':state['handover']},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    return hashlib.sha256(json.dumps({'items':fingerprint_items(state['items']),'period':state['handover']},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+def prioritize_entries(state, settings, entries, fixed):
+    """Stable urgency ordering, including prerequisites needed by urgent work."""
+    ranks={item['id']:PRIORITY_ORDER.get(normalize_priority(item.get('priority')),1) for item in state['items']}
+    pending=[entry for entry in entries if entry.item_id not in fixed]
+    # A prerequisite must be learnt no later than the work it enables, even when
+    # the prerequisite's own label is relaxed. Do not change that stored label.
+    changed=True
+    while changed:
+        changed=False
+        for entry in pending:
+            for dep in settings.dependencies.get(entry.item_id,[]):
+                if dep not in fixed and ranks[dep]>ranks[entry.item_id]:
+                    ranks[dep]=ranks[entry.item_id]
+                    changed=True
+    ordered=[entry for entry in entries if entry.item_id in fixed]
+    resolved=set(fixed)
+    while pending:
+        ready=[entry for entry in pending if set(settings.dependencies.get(entry.item_id,[]))<=resolved]
+        if not ready: raise HTTPException(422,'선행 업무 관계를 확인해 주세요.')
+        entry=min(ready,key=lambda row:ranks[row.item_id])
+        ordered.append(entry);resolved.add(entry.item_id);pending.remove(entry)
+    return ordered
 
 def working(day, settings):
     return (settings.weekends or day.weekday()<5) and day not in settings.holidays
@@ -140,12 +164,17 @@ async def propose(state, settings, reschedule, report):
         if len(fixed)!=len(state['items']): raise HTTPException(422,'남은 인수인계 기간에 배치 가능한 업무일이 없습니다. 기간을 조정해 주세요.')
     report('analyze',f'{rag.chat_model()} · 일정 계획 Agent가 중요도와 선행 조건을 고려하고 있습니다.')
     async def plan(payload):
-        return await json_call('일정 계획 Agent','인수인계 일정의 업무 배치 순서를 제안한다. 제공된 모든 item id를 정확히 한 번 포함한다. 중요도와 명시된 선행 조건을 고려하고 이유를 쓴다. 날짜나 소요 기간을 지어내지 마라. 출력: {"items":[{"item_id":"id","reason":"배치 이유"}]}', payload)
-    planning_items=[{k:i[k] for k in ('id','title','description','priority') if k in i} for i in state['items']]
+        return await json_call('일정 계획 Agent','인수인계 일정의 업무 배치 순서를 제안한다. 제공된 모든 item id를 정확히 한 번 포함한다. '
+            '긴급 업무와 그 업무에 필요한 선행 업무를 초반에, 보통 업무는 기간 절반 이내에 익히는 것을 목표로 다음에, 여유 업무는 나머지 기간에 배치할 순서를 제안한다. '
+            '확정한 선행 관계와 완료 업무 유지를 우선한다. 같은 중요도 안에서는 실제 업무 맥락을 고려한다. '
+            '날짜는 프로그램이 남은 업무일에 균등 분배하므로 특정 날짜나 임의의 긴급 기한·하루 업무 수 제한을 만들지 마라. '
+            '이유는 중요도 기준과 실제 선행 조건에 따라 간단히 쓴다. 날짜나 소요 기간을 지어내지 마라. 출력: {"items":[{"item_id":"id","reason":"배치 이유"}]}'+PRIORITY_RULES, payload)
+    planning_items=[{**{k:i[k] for k in ('id','title','description') if k in i},'priority':normalize_priority(i.get('priority','보통'))} for i in state['items']]
     result=OrderResult.model_validate(await run_role('schedule_planner',plan,{'items':planning_items,'settings':settings.model_dump(mode='json'),'completed':list(fixed),'reschedule':reschedule}))
     ids={i['id'] for i in state['items']}
     if {r.item_id for r in result.items}!=ids or len(result.items)!=len(ids):
         raise HTTPException(502,'AI 일정 순서에 업무 누락이나 중복이 있습니다. 다시 생성해 주세요.')
+    result.items=prioritize_entries(state,settings,result.items,fixed if reschedule else {})
     for entry in result.items:
         if re.search(r'[\u3400-\u9fff\u3040-\u30ff]',entry.reason):
             entry.reason='선행 업무와 입력한 소요량을 기준으로 가능한 시간에 배치했습니다.'
