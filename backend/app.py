@@ -483,6 +483,7 @@ async def audit_checklist(client, url, model, options, content, result, report=N
 async def generate_section(documents, report=None, targets=None, outline=None, feedback=''):
     from langgraph.graph import StateGraph, START, END
     from backend.agents import FlowState
+    from backend.checklist_generation import MAX_WRITER_ATTEMPTS
     report = report or (lambda stage, detail: None)
     report('prepare','등록 문서와 슬라이드 자료를 준비합니다.')
     key=os.environ.get('LLM_API_KEY','');base=os.environ.get('LLM_BASE_URL','').rstrip('/')
@@ -501,7 +502,7 @@ async def generate_section(documents, report=None, targets=None, outline=None, f
     options={'max_completion_tokens':6000 if targets else 16000} if model.startswith(('gpt-5','gpt-6')) else {'max_tokens':6000 if targets else 7000,'temperature':.1}
     async with httpx.AsyncClient(timeout=rag.ai_timeout()) as client:
         async def write(flow):
-            report('analyze',f'{model} · 체크리스트 작성 Agent가 업무와 근거를 작성합니다. {flow.get("attempts",0)+1}차 시도')
+            report('analyze',f'{model} · 체크리스트 작성 Agent가 업무와 근거를 작성합니다. {flow.get("attempts",0)+1}차 시도 (최대 {MAX_WRITER_ATTEMPTS}회)')
             from backend.ai_transport import post
             response=await post(client,url,label=f'{model} · 체크리스트 작성',report=report,params={'api-version':os.environ.get('LLM_API_VERSION','2024-12-01-preview')},headers={'api-key':key},json={'model':model,'messages':messages,'response_format':{'type':'json_object'},**options})
             if response.status_code!=200:
@@ -531,7 +532,7 @@ async def generate_section(documents, report=None, targets=None, outline=None, f
             except (KeyError,IndexError,TypeError,ValueError,ValidationError) as error:
                 from backend.checklist_generation import TargetAssignmentError
                 logging.getLogger('uvicorn.error.handover').warning('checklist structural validation attempt=%s type=%s',flow['attempts'],type(error).__name__)
-                if isinstance(error,TargetAssignmentError) and flow['attempts']>=3:
+                if isinstance(error,TargetAssignmentError) and flow['attempts']>=MAX_WRITER_ATTEMPTS:
                     raise
                 return {'error':str(error)[:6000]}
         async def review(flow):
@@ -545,13 +546,13 @@ async def generate_section(documents, report=None, targets=None, outline=None, f
             choices=flow['result'].get('choices') if isinstance(flow['result'],dict) else None
             if targets and isinstance(choices,list) and choices and isinstance(choices[0],dict) and choices[0].get('finish_reason')=='length':
                 token_key='max_completion_tokens' if 'max_completion_tokens' in options else 'max_tokens'
-                if flow['attempts']>=3:
+                if flow['attempts']>=MAX_WRITER_ATTEMPTS:
                     from backend.checklist_generation import OutputLimitError
                     raise OutputLimitError()
                 options[token_key]=min(12000,options[token_key]+3000)
                 messages[:]=base_messages+[{'role':'user','content':'이전 응답이 출력 한도를 초과했다. 업무 조건은 보존하되 중복 설명을 제거하고, 인용은 근거를 확인할 수 있는 짧은 연속 구절로 작성하라. 완성된 JSON만 반환하라.'}]
                 return {}
-            if flow['attempts']>=3:raise HTTPException(502,'AI 초안 검증을 통과하지 못했습니다. 기존 체크리스트는 유지됩니다. '+flow['error'][:500])
+            if flow['attempts']>=MAX_WRITER_ATTEMPTS:raise HTTPException(502,'AI 초안 검증을 통과하지 못했습니다. 기존 체크리스트는 유지됩니다. '+flow['error'][:500])
             try: previous=flow['result']['choices'][0]['message']['content']
             except (KeyError,IndexError,TypeError):previous='응답 형식 오류'
             messages.append({'role':'assistant','content':previous})
@@ -564,7 +565,7 @@ async def generate_section(documents, report=None, targets=None, outline=None, f
         graph.add_conditional_edges('checklist_reviewer',lambda f:'feedback' if f.get('error') else END)
         graph.add_edge('feedback','checklist_writer')
         try:
-            result=await graph.compile().ainvoke({'attempts':0},config={'recursion_limit':20})
+            result=await graph.compile().ainvoke({'attempts':0},config={'recursion_limit':MAX_WRITER_ATTEMPTS * 4 + 4})
         except httpx.TimeoutException:raise HTTPException(504,'AI 응답 대기 시간이 초과됐습니다. 응답은 요청당 최대 10분까지 기다립니다. 기존 자료는 유지됩니다.')
         except httpx.RequestError:raise HTTPException(502,'AI 연결에 실패했습니다. 기존 자료는 유지됩니다.')
         return result['context'].items

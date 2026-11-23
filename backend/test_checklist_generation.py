@@ -136,8 +136,9 @@ class GenerationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_duplicate_outline_fails_before_writing(self):
         response={'choices':[{'finish_reason':'stop','message':{'content':'{"tasks":["업무","업무"]}'}}]}
-        with patch.object(rag,'retrieve',AsyncMock(return_value=[])),patch.object(rag,'request',AsyncMock(return_value=response)),patch.object(app,'generate_section',AsyncMock()) as writer:
+        with patch.object(rag,'retrieve',AsyncMock(return_value=[])),patch.object(rag,'request',AsyncMock(return_value=response)) as request,patch.object(app,'generate_section',AsyncMock()) as writer:
             with self.assertRaises(app.HTTPException):await generate_full_context([],lambda *args:None)
+        self.assertEqual(request.await_count,3)
         writer.assert_not_called()
 
     async def test_global_feedback_is_passed_back_before_success(self):
@@ -149,14 +150,31 @@ class GenerationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(writer.await_count,1)
         self.assertEqual(repair.call_args.args[1],['예외 조건 확인'])
 
+    async def test_fifth_global_repair_is_reviewed_before_success(self):
+        response={'choices':[{'finish_reason':'stop','message':{'content':'{"tasks":["업무"]}'}}]}
+        item=app.Item(title='업무',description='확인',category='업무',priority='보통')
+        repaired=item.model_copy(update={'description':'필수 조건을 보완하여 확인'})
+        reports=[]
+        reviews=[app.ChecklistAudit(issues=['필수 조건 누락']) for _ in range(5)]+[app.ChecklistAudit(issues=[])]
+        with patch.object(rag,'retrieve',AsyncMock(return_value=[])),patch.object(rag,'request',AsyncMock(return_value=response)),patch.object(app,'generate_section',AsyncMock(return_value=[item])),patch('backend.checklist_generation.repair',AsyncMock(side_effect=[[item]]*4+[[repaired]])) as fix,patch.object(app,'audit_checklist',AsyncMock(side_effect=reviews)) as audit,patch.dict('os.environ',{'LLM_BASE_URL':'https://example.invalid'}):
+            result=await generate_full_context([],lambda stage,detail:reports.append(detail))
+        self.assertEqual(result,[repaired])
+        self.assertEqual(fix.await_count,5)
+        self.assertEqual(audit.await_count,6)
+        self.assertEqual(audit.call_args.args[5].items,[repaired])
+        progress=[message for message in reports if '해당 항목만 보완합니다' in message]
+        self.assertEqual(len(progress),5)
+        for attempt,message in enumerate(progress,1):
+            self.assertIn(f'({attempt}/5)',message)
+
     async def test_unresolved_global_issues_never_return_partial_result(self):
         response={'choices':[{'finish_reason':'stop','message':{'content':'{"tasks":["업무"]}'}}]}
         item=app.Item(title='업무',description='확인',category='업무',priority='보통')
         with patch.object(rag,'retrieve',AsyncMock(return_value=[])),patch.object(rag,'request',AsyncMock(return_value=response)),patch.object(app,'generate_section',AsyncMock(return_value=[item])),patch('backend.checklist_generation.repair',AsyncMock(return_value=[item])) as fix,patch.object(app,'audit_checklist',AsyncMock(return_value=app.ChecklistAudit(issues=['필수 조건 누락']))) as audit,patch.dict('os.environ',{'LLM_BASE_URL':'https://example.invalid'}):
             with self.assertRaises(app.HTTPException):
                 await generate_full_context([],lambda *args:None)
-        self.assertEqual(fix.await_count,4)
-        self.assertEqual(audit.await_count,5)
+        self.assertEqual(fix.await_count,5)
+        self.assertEqual(audit.await_count,6)
 
     async def test_malformed_final_audit_has_explicit_failure(self):
         response={'choices':[{'finish_reason':'stop','message':{'content':'{"tasks":["업무"]}'}}]}

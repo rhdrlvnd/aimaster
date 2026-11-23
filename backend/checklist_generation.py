@@ -7,6 +7,11 @@ from fastapi import HTTPException
 from backend import rag
 from backend.checklist_prompts import WRITING_RULES, validate_readability
 
+# Worker attempts include the initial draft. Each global repair is followed by
+# another audit, so the global audit budget is one greater than the repair budget.
+MAX_WRITER_ATTEMPTS = 5
+MAX_GLOBAL_REPAIRS = 5
+
 class OutputLimitError(Exception):
     """A complete JSON response cannot fit in the current output budget."""
 
@@ -118,7 +123,7 @@ async def generate_full_context(documents,report):
     content=[{'type':'text','text':json.dumps(source,ensure_ascii=False)}]
     options={'max_completion_tokens':6000} if model.startswith(('gpt-5','gpt-6')) else {'max_tokens':6000,'temperature':.1}
     url=os.environ['LLM_BASE_URL'].rstrip('/')+'/openai/deployments/'+quote(model,safe='')+'/chat/completions'
-    for review_round in range(5):
+    for review_round in range(MAX_GLOBAL_REPAIRS + 1):
         async with httpx.AsyncClient(timeout=rag.ai_timeout()) as client:
             try:
                 audit=await m.audit_checklist(client,url,model,options,content,m.AIResult(items=items),report)
@@ -128,8 +133,8 @@ async def generate_full_context(documents,report):
                 raise HTTPException(422,'최종 검토 응답 형식을 확인하지 못했습니다. 기존 체크리스트는 유지됩니다. '+reason) from error
         if not audit.issues:return items
         feedback='; '.join(audit.issues)
-        if review_round==4:break
-        report('validate',f'통합 검토 지적 {len(audit.issues)}건 · 해당 항목만 보완합니다 ({review_round+1}/4).')
+        if review_round==MAX_GLOBAL_REPAIRS:break
+        report('validate',f'통합 검토 지적 {len(audit.issues)}건 · 해당 항목만 보완합니다 ({review_round+1}/{MAX_GLOBAL_REPAIRS}).')
         items=await repair(items,audit.issues,source,documents,report)
     raise HTTPException(502,'전체 문서 통합 검토를 통과하지 못해 기존 체크리스트를 유지했습니다. '+feedback[:1000])
 

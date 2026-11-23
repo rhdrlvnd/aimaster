@@ -52,7 +52,7 @@ class ChecklistQualityTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(app.HTTPException) as caught:
                 await generate_bounded_section([self.doc],lambda *args:None,[self.item['title']],[self.item['title']])
         self.assertEqual(caught.exception.status_code,422)
-        self.assertEqual(limits,[6000,9000,12000])
+        self.assertEqual(limits,[6000,9000,12000,12000,12000])
         self.assertNotIn('BROKEN_JSON',app.json.dumps(messages))
 
     def setup_inputs(self):
@@ -65,12 +65,12 @@ class ChecklistQualityTests(unittest.IsolatedAsyncioTestCase):
         response.json.return_value = {'choices':[{'finish_reason':'stop', 'message':{'content':app.json.dumps(payload, ensure_ascii=False)}}]}
         return response
 
-    async def run_generate(self, responses):
-        client = AsyncMock()
+    async def run_generate(self, responses, *, client=None, report=None, targets=None):
+        client = client if client is not None else AsyncMock()
         client.post.side_effect = [self.response(value) for value in responses]
         client.__aenter__.return_value = client
         with patch.dict(app.os.environ, {'LLM_API_KEY':'test-key', 'LLM_BASE_URL':'https://example.invalid'}), patch.object(app.httpx, 'AsyncClient', return_value=client), patch.object(rag, 'retrieve', AsyncMock(return_value=[self.chunk])):
-            result = await app.generate_section([self.doc])
+            result = await app.generate_section([self.doc], report, targets, targets)
         return result, client
 
     async def test_content_audit_retries_with_actual_feedback(self):
@@ -94,9 +94,43 @@ class ChecklistQualityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_repeated_content_problems_fail_closed(self):
         self.setup_inputs()
+        client = AsyncMock()
         with self.assertRaises(app.HTTPException) as caught:
-            await self.run_generate([value for _ in range(3) for value in ({'items':[self.item]}, {'issues':['chunk와 설명의 조건이 다릅니다.']})])
+            await self.run_generate([value for _ in range(5) for value in ({'items':[self.item]}, {'issues':['chunk와 설명의 조건이 다릅니다.']})], client=client)
         self.assertEqual(caught.exception.status_code,502)
+        self.assertEqual(client.post.await_count,10)
+
+    async def test_fifth_writer_attempt_can_pass_review(self):
+        self.setup_inputs()
+        report = MagicMock()
+        responses = [value for _ in range(4) for value in (
+            {'items':[self.item]}, {'issues':['chunk의 매월 말 조건을 명확히 유지하세요.']}
+        )] + [{'items':[self.item]}, {'issues':[]}]
+        result, client = await self.run_generate(responses, report=report)
+        self.assertEqual(result,[app.Item(**self.item)])
+        self.assertEqual(client.post.await_count,10)
+        progress = [call.args[1] for call in report.call_args_list if '작성 Agent' in call.args[1]]
+        self.assertEqual(len(progress),5)
+        for attempt, message in enumerate(progress,1):
+            self.assertIn(f'{attempt}차 시도 (최대 5회)',message)
+
+    async def test_repeated_structural_problems_stop_after_five_writes(self):
+        self.setup_inputs()
+        invalid = dict(self.item, evidence=[dict(document_id='doc',chunk_id='chunk',quote='매일 오전 9시')])
+        client = AsyncMock()
+        with self.assertRaises(app.HTTPException) as caught:
+            await self.run_generate([{'items':[invalid]}]*5, client=client)
+        self.assertEqual(caught.exception.status_code,502)
+        self.assertEqual(client.post.await_count,5)
+
+    async def test_repeated_target_problems_stop_after_five_writes(self):
+        from backend.checklist_generation import TargetAssignmentError
+        self.setup_inputs()
+        invalid = dict(self.item,target_id='target-unknown')
+        client = AsyncMock()
+        with self.assertRaises(TargetAssignmentError):
+            await self.run_generate([{'items':[invalid]}]*5, client=client, targets=[self.item['title']])
+        self.assertEqual(client.post.await_count,5)
 
     async def test_full_chunk_collection_has_no_top_k_omission(self):
         rows = [dict(document_id='doc', ordinal=n, kind='text', slide=0) for n in reversed(range(40))]
